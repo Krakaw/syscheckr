@@ -6,3 +6,4 @@ syscheckr.yaml
 .env
 *.env
 secrets.env
+config.yaml
