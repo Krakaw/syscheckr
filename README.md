@@ -1,7 +1,7 @@
 # syscheckr
 
 A single Go binary for custom system health checks with pluggable reporting.
-Define checks (disk, CPU, memory, Docker, logs, HTTP, arbitrary commands) in
+Define checks (disk, mounts, CPU, memory, Docker, logs, HTTP, arbitrary commands) in
 YAML, and route results by severity to logs, Slack, generic webhooks, or Linear
 tickets. Run it once from cron/systemd/launchd, or as a long-running daemon with
 its own cron scheduler.
@@ -85,6 +85,7 @@ reporters:
 | Type | Purpose | Key config |
 |---|---|---|
 | `disk` | Filesystem usage % | `path`, `warn_percent`, `crit_percent` |
+| `mount` | Path is mounted (crit if missing or remounted read-only) | `path`, `device`, `fstype`, `read_only` |
 | `cpu` | CPU busy % over a sample | `sample`, `warn_percent`, `crit_percent` |
 | `memory` | Virtual memory used % | `warn_percent`, `crit_percent` |
 | `docker_running` | Docker daemon reachable | — |

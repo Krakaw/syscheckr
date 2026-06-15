@@ -18,6 +18,16 @@ checks:
       warn_percent: 80
       crit_percent: 90
 
+  - name: data-mount
+    type: mount
+    schedule: "*/5 * * * *"        # daemon mode only; cron syntax
+    tags: [system]
+    config:
+      path: /data                  # crit if not mounted or remounted read-only
+      # device: /dev/sdb1          # optional: require this source device
+      # fstype: ext4               # optional: require this filesystem type
+      # read_only: false           # set true for mounts meant to be read-only
+
   - name: cpu
     type: cpu
     schedule: "@every 1m"
