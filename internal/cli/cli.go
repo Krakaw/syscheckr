@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
 	"github.com/keith/syscheckr/internal/check"
 	"github.com/keith/syscheckr/internal/config"
+	"github.com/keith/syscheckr/internal/dotenv"
 	"github.com/keith/syscheckr/internal/report"
 	"github.com/keith/syscheckr/internal/runner"
 	"github.com/keith/syscheckr/internal/scheduler"
@@ -30,9 +32,13 @@ func Root() *cobra.Command {
 	return root
 }
 
-// loadRunner loads the config at path and constructs a Runner from it.
-func loadRunner(path string) (*config.Config, *runner.Runner, error) {
-	cfg, err := config.Load(path)
+// loadRunner loads env files, then the config at configPath, and constructs a
+// Runner. Env files are applied before config so ${ENV} interpolation sees them.
+func loadRunner(configPath, envFile string) (*config.Config, *runner.Runner, error) {
+	if err := loadEnvFiles(envFile, configPath); err != nil {
+		return nil, nil, err
+	}
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -43,15 +49,44 @@ func loadRunner(path string) (*config.Config, *runner.Runner, error) {
 	return cfg, r, nil
 }
 
+// loadEnvFiles applies environment variables from a .env file. When envFile is
+// set it is required (missing is an error). Otherwise it auto-loads a ".env"
+// from the working directory and from the config file's directory, if present.
+// Existing process env vars always win, so secrets injected by systemd/CI are
+// not clobbered.
+func loadEnvFiles(envFile, configPath string) error {
+	if envFile != "" {
+		if _, err := dotenv.Load(envFile, false); err != nil {
+			return fmt.Errorf("load env file: %w", err)
+		}
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, p := range []string{".env", filepath.Join(filepath.Dir(configPath), ".env")} {
+		abs, err := filepath.Abs(p)
+		if err != nil || seen[abs] {
+			continue
+		}
+		seen[abs] = true
+		if _, err := os.Stat(p); err != nil {
+			continue // absent: auto-load is best-effort
+		}
+		if _, err := dotenv.Load(p, false); err != nil {
+			return fmt.Errorf("load env file %s: %w", p, err)
+		}
+	}
+	return nil
+}
+
 func runCmd() *cobra.Command {
-	var configPath string
+	var configPath, envFile string
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run all checks once, report, and exit",
 		Long: "Runs every configured check a single time, routes results to reporters, " +
 			"and exits non-zero if any check is failing (warn=0 by default, crit/unknown=2).",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			_, r, err := loadRunner(configPath)
+			_, r, err := loadRunner(configPath, envFile)
 			if err != nil {
 				return err
 			}
@@ -65,6 +100,7 @@ func runCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&configPath, "config", "c", "syscheckr.yaml", "path to config file")
+	cmd.Flags().StringVar(&envFile, "env-file", "", "load secrets from this .env file (default: auto-load ./.env)")
 	return cmd
 }
 
@@ -80,14 +116,14 @@ func exitCode(worst check.Status) int {
 }
 
 func daemonCmd() *cobra.Command {
-	var configPath, healthz string
+	var configPath, healthz, envFile string
 	cmd := &cobra.Command{
 		Use:   "daemon",
 		Short: "Run checks on their schedules until interrupted",
 		Long: "Starts a long-running scheduler that runs each check on its cron `schedule` " +
 			"(checks without a schedule default to every minute). Stops cleanly on SIGINT/SIGTERM.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, r, err := loadRunner(configPath)
+			cfg, r, err := loadRunner(configPath, envFile)
 			if err != nil {
 				return err
 			}
@@ -103,16 +139,17 @@ func daemonCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&configPath, "config", "c", "syscheckr.yaml", "path to config file")
 	cmd.Flags().StringVar(&healthz, "healthz", "", "if set (e.g. :8080), serve a /healthz endpoint")
+	cmd.Flags().StringVar(&envFile, "env-file", "", "load secrets from this .env file (default: auto-load ./.env)")
 	return cmd
 }
 
 func validateCmd() *cobra.Command {
-	var configPath string
+	var configPath, envFile string
 	cmd := &cobra.Command{
 		Use:   "validate",
 		Short: "Parse and validate the config without running checks",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			cfg, _, err := loadRunner(configPath)
+			cfg, _, err := loadRunner(configPath, envFile)
 			if err != nil {
 				return err
 			}
@@ -121,6 +158,7 @@ func validateCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&configPath, "config", "c", "syscheckr.yaml", "path to config file")
+	cmd.Flags().StringVar(&envFile, "env-file", "", "load secrets from this .env file (default: auto-load ./.env)")
 	return cmd
 }
 

@@ -35,6 +35,34 @@ critical or unknown — so a cron job fails loudly only on real problems.
 Config is YAML with `${ENV}` / `${ENV:-default}` interpolation for secrets. See
 [`config.example.yaml`](./config.example.yaml) for a complete annotated file.
 
+### Secrets
+
+`${ENV}` references expand from the process environment at load time. Provide them
+however you run syscheckr:
+
+- **`.env` file (auto-loaded):** `run`/`daemon`/`validate` automatically load a
+  `.env` from the working directory and from the config file's directory, if
+  present. Real environment variables always win over the file, so systemd/CI
+  secrets are never clobbered.
+- **`--env-file path`:** load a specific file (required to exist).
+- **Real env vars:** export them yourself, or via systemd `EnvironmentFile=`,
+  launchd, or a cron wrapper.
+
+```sh
+# secrets.env  (chmod 600, git-ignored)
+SLACK_WEBHOOK_URL=https://hooks.slack.com/...
+LINEAR_API_KEY=lin_api_xxx
+LINEAR_TEAM_ID=team-uuid
+```
+```sh
+./syscheckr run --env-file secrets.env      # explicit
+./syscheckr run                             # auto-loads ./.env if present
+```
+
+`.env` format: `KEY=VALUE` per line, `#` comments, optional `export ` prefix,
+single quotes are literal, double quotes process `\n`/`\t`/`\"`/`\\`. A missing
+required secret fails fast with `config "webhook_url": is required`.
+
 ```yaml
 defaults:
   timeout: 10s

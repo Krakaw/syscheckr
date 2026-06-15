@@ -3,3 +3,6 @@
 .syscheckr-state.json
 syscheckr-state.json
 syscheckr.yaml
+.env
+*.env
+secrets.env
