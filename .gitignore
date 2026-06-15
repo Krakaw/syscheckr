@@ -1,0 +1,5 @@
+/syscheckr
+*.tmp
+.syscheckr-state.json
+syscheckr-state.json
+syscheckr.yaml

@@ -1,0 +1,114 @@
+# syscheckr example configuration.
+#
+# Secrets use ${ENV} interpolation: ${VAR} expands to the environment variable,
+# ${VAR:-default} falls back to a literal when unset. Run `syscheckr validate`
+# to check this file, `syscheckr run` for a one-shot pass, or
+# `syscheckr daemon` to run on the schedules below.
+
+defaults:
+  timeout: 10s            # per-check timeout unless a check overrides it
+
+checks:
+  - name: root-disk
+    type: disk
+    schedule: "*/5 * * * *"        # daemon mode only; cron syntax
+    tags: [system]
+    config:
+      path: /
+      warn_percent: 80
+      crit_percent: 90
+
+  - name: cpu
+    type: cpu
+    schedule: "@every 1m"
+    tags: [system]
+    config:
+      sample: 1s
+      warn_percent: 85
+      crit_percent: 95
+
+  - name: memory
+    type: memory
+    schedule: "@every 1m"
+    tags: [system]
+    config:
+      warn_percent: 85
+      crit_percent: 95
+
+  - name: docker-up
+    type: docker_running
+    schedule: "@every 1m"
+    tags: [docker]
+
+  - name: api-container
+    type: docker_container
+    schedule: "@every 1m"
+    tags: [docker]
+    config:
+      name: my-api          # container name (without leading slash)
+      state: running
+      healthy: false        # set true to also require a (healthy) status
+
+  - name: app-errors
+    type: log
+    schedule: "@every 5m"
+    config:
+      path: /var/log/app.log
+      pattern: "ERROR|FATAL"
+      window: 5m            # only count lines newer than now-5m (needs leading RFC3339 timestamp)
+      warn_count: 1
+      crit_count: 10
+
+  - name: health-endpoint
+    type: http
+    schedule: "@every 1m"
+    config:
+      url: https://example.com/health
+      expect_status: 200
+      warn_ms: 500
+      crit_ms: 2000
+
+  - name: cert-expiry
+    type: command
+    schedule: "@daily"
+    config:
+      shell: true
+      command: "echo OK"     # replace with your real command
+      crit_pattern: "EXPIRED"
+      warn_pattern: "expiring"
+
+reporters:
+  # Always-on console output. No min_severity means it sees every result.
+  - name: console
+    type: log
+    config:
+      format: text          # or "json"
+      output: stdout        # or "stderr" or a file path
+
+  # Slack on warnings and worse.
+  - name: slack-alerts
+    type: slack
+    min_severity: warn
+    only_failing: true
+    config:
+      webhook_url: ${SLACK_WEBHOOK_URL}
+
+  # Generic webhook on criticals only.
+  - name: ops-webhook
+    type: webhook
+    min_severity: crit
+    config:
+      url: ${OPS_WEBHOOK_URL:-https://ops.example.com/hook}
+      secret: ${OPS_WEBHOOK_SECRET}        # optional HMAC signing
+      redact: false                        # true strips log samples / command output from the payload
+
+  # Linear tickets for criticals, deduped so you get one ticket per check per day.
+  - name: linear
+    type: linear
+    min_severity: crit
+    config:
+      api_key: ${LINEAR_API_KEY}
+      team_id: ${LINEAR_TEAM_ID}
+      dedupe_window: 24h
+      redact: true                         # keep log samples / command output out of tickets
+      state_path: .syscheckr-state.json
