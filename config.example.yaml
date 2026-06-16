@@ -84,6 +84,7 @@ checks:
     config:
       shell: true
       command: "echo OK"     # replace with your real command
+      pwd: /etc/ssl           # optional: working directory (default: process cwd)
       crit_pattern: "EXPIRED"
       warn_pattern: "expiring"
 

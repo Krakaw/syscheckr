@@ -2,6 +2,7 @@ package check
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -103,6 +104,20 @@ func TestCommandShellAndPatterns(t *testing.T) {
 	})
 	if res.Status != StatusWarn {
 		t.Fatalf("warn_pattern should be warn, got %v", res.Status)
+	}
+}
+
+func TestCommandPwd(t *testing.T) {
+	dir := t.TempDir()
+	res := runCommand(t, map[string]any{"command": "pwd", "pwd": dir})
+	if res.Status != StatusOK {
+		t.Fatalf("want ok, got %v (%s)", res.Status, res.Summary)
+	}
+	// macOS resolves TempDir under /private; pwd reports the real path, so match
+	// on the suffix to stay portable across symlinked temp roots.
+	out, _ := res.Details["output"].(string)
+	if !strings.HasSuffix(out, dir) && !strings.HasSuffix(dir, out) {
+		t.Errorf("output = %q, want command to run in %q", out, dir)
 	}
 }
 

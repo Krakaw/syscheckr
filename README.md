@@ -109,7 +109,7 @@ reporters:
 | `docker_container` | Named container in expected state | `name`, `state`, `healthy` |
 | `log` | Count regex matches in a file | `path`, `pattern`, `window`, `warn_count`, `crit_count` |
 | `http` | Probe an endpoint (status + latency) | `url`, `expect_status`, `warn_ms`, `crit_ms`, `headers` |
-| `command` | Run any command, map exit/output to status | `command`, `args`, `shell`, `expect_exit`, `match_pattern`, `warn_pattern`, `crit_pattern` |
+| `command` | Run any command, map exit/output to status | `command`, `args`, `shell`, `pwd`, `expect_exit`, `match_pattern`, `warn_pattern`, `crit_pattern` |
 
 Docker checks talk to the Docker Engine API over the socket from `DOCKER_HOST`
 (default `unix:///var/run/docker.sock`) — no Docker CLI or SDK required.

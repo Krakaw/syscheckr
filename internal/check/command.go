@@ -25,6 +25,7 @@ type commandCheck struct {
 	command      string
 	args         []string
 	shell        bool
+	pwd          string
 	expectExit   int
 	matchPattern *regexp.Regexp
 	warnPattern  *regexp.Regexp
@@ -40,6 +41,7 @@ func init() {
 //	command:       program to run (required); with shell:true, the full command line
 //	args:          argument list (ignored when shell:true)
 //	shell:         run via `sh -c` so pipes/globs work (default false)
+//	pwd:           working directory to run the command in (default: process cwd)
 //	expect_exit:   exit code considered OK (default 0)
 //	match_pattern: regexp that MUST appear in output, else crit (optional)
 //	warn_pattern:  regexp that, if present, yields warn (optional)
@@ -50,6 +52,7 @@ func newCommandCheck(name string, cfg map[string]any) (Check, error) {
 		Base:       Base{CheckName: name},
 		command:    m.Required("command"),
 		shell:      m.Bool("shell", false),
+		pwd:        m.StringDefault("pwd", ""),
 		expectExit: m.Int("expect_exit", 0),
 	}
 	if raw, ok := cfg["args"].([]any); ok {
@@ -87,6 +90,7 @@ func (c *commandCheck) Run(ctx context.Context) Result {
 	} else {
 		cmd = exec.CommandContext(ctx, c.command, c.args...)
 	}
+	cmd.Dir = c.pwd
 	// Cap captured output so a command emitting unbounded output (e.g. a runaway
 	// `yes`) cannot exhaust memory before its timeout fires. The cap is far
 	// larger than the truncated `output` detail, leaving room for pattern matching.
