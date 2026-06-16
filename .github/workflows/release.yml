@@ -1,0 +1,108 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          # - goos: darwin
+          #   goarch: amd64
+          # - goos: darwin
+          #   goarch: arm64
+          # - goos: windows
+          #   goarch: amd64
+          # - goos: windows
+          #   goarch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          PKG="github.com/keith/syscheckr/internal/version"
+          LDFLAGS="-s -w \
+            -X ${PKG}.Version=${VERSION} \
+            -X ${PKG}.Commit=${COMMIT} \
+            -X ${PKG}.Date=${DATE}"
+
+          BIN="syscheckr"
+          if [ "${GOOS}" = "windows" ]; then
+            BIN="syscheckr.exe"
+          fi
+
+          OUTDIR="dist/syscheckr-${VERSION}-${GOOS}-${GOARCH}"
+          mkdir -p "${OUTDIR}"
+          go build -trimpath -ldflags "${LDFLAGS}" -o "${OUTDIR}/${BIN}" ./cmd/syscheckr
+          cp README.md LICENSE "${OUTDIR}/" 2>/dev/null || true
+
+      - name: Package
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          NAME="syscheckr-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          cd dist
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip -r "${NAME}.zip" "${NAME}"
+          else
+            tar -czf "${NAME}.tar.gz" "${NAME}"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: syscheckr-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Create release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum *.tar.gz *.zip > checksums.txt
+          cat checksums.txt
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
