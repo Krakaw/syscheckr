@@ -6,11 +6,28 @@ YAML, and route results by severity to logs, Slack, generic webhooks, or Linear
 tickets. Run it once from cron/systemd/launchd, or as a long-running daemon with
 its own cron scheduler.
 
-## Quick start
+## Install
+
+Download and install the latest Linux release (auto-detects amd64/arm64, verifies
+the SHA-256 checksum):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Krakaw/syscheckr/main/scripts/install.sh | bash
+```
+
+Overrides: `VERSION=v0.1.2` pins a release; `INSTALL_DIR="$HOME/.local/bin"`
+installs without sudo. Prebuilt `.tar.gz` archives are on the
+[releases page](https://github.com/Krakaw/syscheckr/releases).
+
+Or build from source (any platform with Go 1.25+):
 
 ```sh
 go build -o syscheckr ./cmd/syscheckr
+```
 
+## Quick start
+
+```sh
 cp config.example.yaml syscheckr.yaml      # edit to taste
 ./syscheckr validate -c syscheckr.yaml     # parse + validate, no execution
 ./syscheckr run -c syscheckr.yaml          # run once, report, exit
