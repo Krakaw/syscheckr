@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/keith/syscheckr/internal/check"
-	"github.com/keith/syscheckr/internal/confutil"
+	"github.com/Krakaw/syscheckr/internal/check"
+	"github.com/Krakaw/syscheckr/internal/confutil"
 )
 
 // slackReporter posts a message to a Slack incoming webhook, one attachment per

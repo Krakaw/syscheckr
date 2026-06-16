@@ -8,7 +8,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/keith/syscheckr/internal/check"
+	"github.com/Krakaw/syscheckr/internal/check"
 )
 
 // Reporter delivers a set of check results to some destination (log, Slack,

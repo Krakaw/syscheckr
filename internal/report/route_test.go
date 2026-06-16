@@ -3,7 +3,7 @@ package report
 import (
 	"testing"
 
-	"github.com/keith/syscheckr/internal/check"
+	"github.com/Krakaw/syscheckr/internal/check"
 )
 
 func results() []check.Result {

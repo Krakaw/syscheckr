@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/keith/syscheckr/internal/confutil"
+	"github.com/Krakaw/syscheckr/internal/confutil"
 	"github.com/shirou/gopsutil/v4/disk"
 )
 

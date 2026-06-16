@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/keith/syscheckr/internal/check"
+	"github.com/Krakaw/syscheckr/internal/check"
 )
 
 func TestExitCode(t *testing.T) {

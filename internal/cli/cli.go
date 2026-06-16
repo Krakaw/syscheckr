@@ -10,13 +10,13 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/keith/syscheckr/internal/check"
-	"github.com/keith/syscheckr/internal/config"
-	"github.com/keith/syscheckr/internal/dotenv"
-	"github.com/keith/syscheckr/internal/report"
-	"github.com/keith/syscheckr/internal/runner"
-	"github.com/keith/syscheckr/internal/scheduler"
-	"github.com/keith/syscheckr/internal/version"
+	"github.com/Krakaw/syscheckr/internal/check"
+	"github.com/Krakaw/syscheckr/internal/config"
+	"github.com/Krakaw/syscheckr/internal/dotenv"
+	"github.com/Krakaw/syscheckr/internal/report"
+	"github.com/Krakaw/syscheckr/internal/runner"
+	"github.com/Krakaw/syscheckr/internal/scheduler"
+	"github.com/Krakaw/syscheckr/internal/version"
 	"github.com/spf13/cobra"
 )
 

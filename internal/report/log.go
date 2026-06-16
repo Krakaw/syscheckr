@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/keith/syscheckr/internal/check"
-	"github.com/keith/syscheckr/internal/confutil"
+	"github.com/Krakaw/syscheckr/internal/check"
+	"github.com/Krakaw/syscheckr/internal/confutil"
 )
 
 // logReporter writes results using log/slog. It is the baseline reporter and is

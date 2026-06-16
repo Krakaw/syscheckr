@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keith/syscheckr/internal/config"
-	"github.com/keith/syscheckr/internal/runner"
+	"github.com/Krakaw/syscheckr/internal/config"
+	"github.com/Krakaw/syscheckr/internal/runner"
 )
 
 func buildRunner(t *testing.T, checks []config.CheckConfig) (*config.Config, *runner.Runner) {

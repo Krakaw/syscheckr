@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/keith/syscheckr/internal/config"
-	"github.com/keith/syscheckr/internal/runner"
+	"github.com/Krakaw/syscheckr/internal/config"
+	"github.com/Krakaw/syscheckr/internal/runner"
 	"github.com/robfig/cron/v3"
 )
 

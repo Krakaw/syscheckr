@@ -10,7 +10,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/keith/syscheckr/internal/confutil"
+	"github.com/Krakaw/syscheckr/internal/confutil"
 )
 
 // logCheck counts lines in a file matching a regex and compares the count

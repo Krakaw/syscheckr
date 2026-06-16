@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keith/syscheckr/internal/check"
-	"github.com/keith/syscheckr/internal/config"
-	"github.com/keith/syscheckr/internal/report"
+	"github.com/Krakaw/syscheckr/internal/check"
+	"github.com/Krakaw/syscheckr/internal/config"
+	"github.com/Krakaw/syscheckr/internal/report"
 )
 
 func TestWorstStatus(t *testing.T) {

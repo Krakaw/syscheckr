@@ -1,4 +1,4 @@
-module github.com/keith/syscheckr
+module github.com/Krakaw/syscheckr
 
 go 1.25.5
 

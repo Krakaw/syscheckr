@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/keith/syscheckr/internal/check"
-	"github.com/keith/syscheckr/internal/config"
-	"github.com/keith/syscheckr/internal/report"
+	"github.com/Krakaw/syscheckr/internal/check"
+	"github.com/Krakaw/syscheckr/internal/config"
+	"github.com/Krakaw/syscheckr/internal/report"
 )
 
 // boundCheck pairs a constructed Check with the per-check settings the runner

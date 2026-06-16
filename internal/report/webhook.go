@@ -12,8 +12,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/keith/syscheckr/internal/check"
-	"github.com/keith/syscheckr/internal/confutil"
+	"github.com/Krakaw/syscheckr/internal/check"
+	"github.com/Krakaw/syscheckr/internal/confutil"
 )
 
 // webhookReporter POSTs a JSON payload of results to an arbitrary URL. An

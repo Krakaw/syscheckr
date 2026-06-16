@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/keith/syscheckr/internal/confutil"
-	"github.com/keith/syscheckr/internal/dockerapi"
+	"github.com/Krakaw/syscheckr/internal/confutil"
+	"github.com/Krakaw/syscheckr/internal/dockerapi"
 )
 
 // dockerClient lazily builds and caches a single dockerapi.Client. Construction

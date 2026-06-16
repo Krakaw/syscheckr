@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/keith/syscheckr/internal/check"
+	"github.com/Krakaw/syscheckr/internal/check"
 )
 
 func TestLogReporterWritesToFile(t *testing.T) {

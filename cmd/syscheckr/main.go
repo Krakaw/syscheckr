@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/keith/syscheckr/internal/cli"
+	"github.com/Krakaw/syscheckr/internal/cli"
 )
 
 func main() {

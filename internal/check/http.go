@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/keith/syscheckr/internal/confutil"
+	"github.com/Krakaw/syscheckr/internal/confutil"
 )
 
 // httpCheck probes an HTTP endpoint and asserts the status code and latency.

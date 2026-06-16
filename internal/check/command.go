@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/keith/syscheckr/internal/confutil"
+	"github.com/Krakaw/syscheckr/internal/confutil"
 )
 
 // commandCheck runs an arbitrary command and maps the result to a status. This

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keith/syscheckr/internal/check"
+	"github.com/Krakaw/syscheckr/internal/check"
 )
 
 func sampleResults() []check.Result {
