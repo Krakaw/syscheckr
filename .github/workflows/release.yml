@@ -95,6 +95,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd dist
+          shopt -s nullglob
           sha256sum *.tar.gz *.zip > checksums.txt
           cat checksums.txt
 
