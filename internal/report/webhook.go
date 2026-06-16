@@ -94,7 +94,8 @@ func (r *webhookReporter) Report(ctx context.Context, results []check.Result) er
 		return fmt.Errorf("post webhook: %w", err)
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	// Fully drain so the connection to this fixed webhook host is reused.
+	io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("webhook returned status %d", resp.StatusCode)
 	}

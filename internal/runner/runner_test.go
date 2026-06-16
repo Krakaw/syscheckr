@@ -61,8 +61,8 @@ func (c *captureReporter) Report(_ context.Context, rs []check.Result) error {
 
 // shared capture instances keyed so tests can retrieve them after New().
 var (
-	captureMu   sync.Mutex
-	captures    = map[string]*captureReporter{}
+	captureMu sync.Mutex
+	captures  = map[string]*captureReporter{}
 )
 
 func init() {
@@ -172,6 +172,65 @@ func TestRunAllSortsResults(t *testing.T) {
 		if res.Duration < 0 || res.Timestamp.IsZero() {
 			t.Errorf("runner did not stamp timing on %s", res.Check)
 		}
+	}
+}
+
+// closerCheck/closerReporter implement io.Closer to verify Runner.Close fans
+// out to both checks and reporters that hold releasable resources.
+type closerCheck struct {
+	check.Base
+	closed *bool
+}
+
+func (c *closerCheck) Run(_ context.Context) check.Result { return c.OK("ok", nil) }
+func (c *closerCheck) Close() error                       { *c.closed = true; return nil }
+
+type closerReporter struct {
+	name   string
+	closed *bool
+}
+
+func (r *closerReporter) Name() string                                 { return r.name }
+func (r *closerReporter) Report(context.Context, []check.Result) error { return nil }
+func (r *closerReporter) Close() error                                 { *r.closed = true; return nil }
+
+var (
+	closeStateMu   sync.Mutex
+	checkClosed    bool
+	reporterClosed bool
+)
+
+func init() {
+	check.Register("closer_check", func(name string, _ map[string]any) (check.Check, error) {
+		return &closerCheck{Base: check.Base{CheckName: name}, closed: &checkClosed}, nil
+	})
+	report.Register("closer_reporter", func(name string, _ map[string]any) (report.Reporter, error) {
+		return &closerReporter{name: name, closed: &reporterClosed}, nil
+	})
+}
+
+func TestCloseReleasesCheckAndReporterResources(t *testing.T) {
+	closeStateMu.Lock()
+	defer closeStateMu.Unlock()
+	checkClosed, reporterClosed = false, false
+
+	cfg := &config.Config{
+		Defaults:  config.Defaults{Timeout: time.Second},
+		Checks:    []config.CheckConfig{{Name: "c", Type: "closer_check", Timeout: time.Second}},
+		Reporters: []config.ReporterConfig{{Name: "r", Type: "closer_reporter"}},
+	}
+	r, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close returned error: %v", err)
+	}
+	if !checkClosed {
+		t.Error("Close did not close the check")
+	}
+	if !reporterClosed {
+		t.Error("Close did not close the reporter")
 	}
 }
 

@@ -4,20 +4,47 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/keith/syscheckr/internal/confutil"
 	"github.com/keith/syscheckr/internal/dockerapi"
 )
 
+// dockerClient lazily builds and caches a single dockerapi.Client. Construction
+// is deferred to first use (not the check constructor) so a bad DOCKER_HOST
+// surfaces as a failing check at run time rather than aborting startup — while
+// the client is still built only once and reused across runs, avoiding the
+// leaked transport-per-run that a fresh client each Run would cause.
+type dockerClient struct {
+	once   sync.Once
+	client *dockerapi.Client
+	err    error
+}
+
+func (d *dockerClient) get() (*dockerapi.Client, error) {
+	d.once.Do(func() { d.client, d.err = dockerapi.New() })
+	return d.client, d.err
+}
+
+// Close releases the client's idle connections if one was ever created.
+func (d *dockerClient) Close() error {
+	if d.client != nil {
+		return d.client.Close()
+	}
+	return nil
+}
+
 // dockerRunningCheck verifies the Docker daemon is reachable.
 type dockerRunningCheck struct {
 	Base
+	dockerClient
 }
 
 // dockerContainerCheck verifies a named container exists and is in the expected
 // state (and optionally healthy).
 type dockerContainerCheck struct {
 	Base
+	dockerClient
 	container string
 	wantState string
 	healthy   bool
@@ -33,7 +60,7 @@ func newDockerRunningCheck(name string, cfg map[string]any) (Check, error) {
 }
 
 func (c *dockerRunningCheck) Run(ctx context.Context) Result {
-	cli, err := dockerapi.New()
+	cli, err := c.get()
 	if err != nil {
 		return c.Unknown("cannot init docker client", err)
 	}
@@ -63,7 +90,7 @@ func newDockerContainerCheck(name string, cfg map[string]any) (Check, error) {
 }
 
 func (c *dockerContainerCheck) Run(ctx context.Context) Result {
-	cli, err := dockerapi.New()
+	cli, err := c.get()
 	if err != nil {
 		return c.Unknown("cannot init docker client", err)
 	}

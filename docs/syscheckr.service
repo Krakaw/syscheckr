@@ -1,0 +1,75 @@
+# Example systemd unit for running syscheckr in daemon mode.
+#
+# Install:
+#   sudo cp syscheckr /usr/local/bin/syscheckr
+#   sudo install -d -m 0755 /etc/syscheckr
+#   sudo cp syscheckr.yaml /etc/syscheckr/syscheckr.yaml
+#   sudo cp docs/syscheckr.service /etc/systemd/system/syscheckr.service
+#   # secrets (chmod 600, never world-readable):
+#   sudo install -m 0600 secrets.env /etc/syscheckr/secrets.env
+#
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now syscheckr
+#   systemctl status syscheckr
+#   journalctl -u syscheckr -f          # follow logs
+#
+# After editing this unit, run `sudo systemctl daemon-reload` then
+# `sudo systemctl restart syscheckr`.
+
+[Unit]
+Description=syscheckr system health check daemon
+Documentation=https://github.com/keith/syscheckr
+# Wait for the network so HTTP checks and Slack/Linear/webhook reporters work.
+After=network-online.target
+Wants=network-online.target
+
+# If the daemon keeps dying, back off rather than hammer the box: more than
+# 5 restarts within 60s trips a hard stop so the failure stays visible.
+# (These rate-limit keys live in [Unit], not [Service].)
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+
+# Run the long-lived daemon. --healthz exposes a JSON health endpoint so an
+# external monitor (or `curl localhost:8080/healthz`) can probe liveness.
+ExecStart=/usr/local/bin/syscheckr daemon -c /etc/syscheckr/syscheckr.yaml --healthz :8080
+
+# Validate the config before (re)starting; a bad edit fails fast and visibly
+# instead of crash-looping with a confusing error.
+ExecStartPre=/usr/local/bin/syscheckr validate -c /etc/syscheckr/syscheckr.yaml
+
+# Secrets (SLACK_WEBHOOK_URL, LINEAR_API_KEY, ...) referenced as ${ENV} in the
+# config. "-" means "don't fail if the file is absent". Real env vars set here
+# always win over any .env file in the working directory.
+EnvironmentFile=-/etc/syscheckr/secrets.env
+
+# --- Restart on failure --------------------------------------------------
+# Restart whenever the process exits non-zero, is killed, or times out, but
+# NOT when it exits cleanly (e.g. a deliberate `systemctl stop`).
+Restart=on-failure
+RestartSec=5s
+
+# Graceful shutdown: syscheckr stops cleanly on SIGINT/SIGTERM.
+KillSignal=SIGTERM
+TimeoutStopSec=20s
+
+# --- Hardening (optional but recommended) --------------------------------
+# Run as an unprivileged user. Create it once with:
+#   sudo useradd --system --no-create-home --shell /usr/sbin/nologin syscheckr
+# NOTE: some checks need privileges — e.g. reading other users' Docker socket,
+# or mount/disk paths with restrictive permissions. Drop these two lines (run
+# as root) if a check reports a permission error you can't grant otherwise.
+User=syscheckr
+Group=syscheckr
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# syscheckr writes nothing by default; add ReadWritePaths= if a log reporter
+# targets a file path the daemon must create or append to.
+
+[Install]
+WantedBy=multi-user.target

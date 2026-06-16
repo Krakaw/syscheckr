@@ -98,3 +98,26 @@ func TestDockerContainerRequiresName(t *testing.T) {
 		t.Error("expected error when name missing")
 	}
 }
+
+// Docker checks build their client lazily and reuse it across runs (instead of
+// leaking a transport per run), but a bad DOCKER_HOST must surface only when the
+// check runs — construction always succeeds so daemon startup isn't aborted.
+func TestDockerBadHostFailsAtRunNotConstruction(t *testing.T) {
+	t.Setenv("DOCKER_HOST", "ftp://nope")
+
+	c, err := newDockerRunningCheck("docker", nil)
+	if err != nil {
+		t.Fatalf("construction should not fail on bad DOCKER_HOST: %v", err)
+	}
+	if res := c.Run(context.Background()); res.Status != StatusUnknown {
+		t.Errorf("want unknown when client init fails, got %v (%s)", res.Status, res.Summary)
+	}
+
+	cc, err := newDockerContainerCheck("api", map[string]any{"name": "x"})
+	if err != nil {
+		t.Fatalf("construction should not fail on bad DOCKER_HOST: %v", err)
+	}
+	if res := cc.Run(context.Background()); res.Status != StatusUnknown {
+		t.Errorf("want unknown when client init fails, got %v (%s)", res.Status, res.Summary)
+	}
+}

@@ -95,6 +95,11 @@ func runCmd() *cobra.Command {
 			if err := r.Report(ctx, results); err != nil {
 				fmt.Fprintln(os.Stderr, "warning:", err)
 			}
+			// Close before exiting so any open log file is flushed/closed;
+			// os.Exit skips deferred cleanup, so this must be explicit.
+			if err := r.Close(); err != nil {
+				fmt.Fprintln(os.Stderr, "warning: close:", err)
+			}
 			os.Exit(exitCode(runner.WorstStatus(results)))
 			return nil
 		},

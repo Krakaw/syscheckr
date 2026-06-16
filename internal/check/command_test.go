@@ -25,6 +25,25 @@ func TestCommandOK(t *testing.T) {
 	}
 }
 
+// TestLimitedBufferCaps verifies the command output buffer discards bytes past
+// its cap so an unbounded-output command cannot exhaust memory.
+func TestLimitedBufferCaps(t *testing.T) {
+	b := &limitedBuffer{max: 10}
+	n, err := b.Write([]byte("hello"))
+	if n != 5 || err != nil {
+		t.Fatalf("first write: n=%d err=%v", n, err)
+	}
+	// This write straddles the cap: only 5 more bytes are kept, but the writer
+	// must still report the full length and no error so the child isn't killed.
+	n, err = b.Write([]byte("world!!!!!extra"))
+	if n != 15 || err != nil {
+		t.Fatalf("second write: n=%d err=%v", n, err)
+	}
+	if got := b.String(); got != "helloworld" {
+		t.Fatalf("buffer = %q, want %q", got, "helloworld")
+	}
+}
+
 func TestCommandNonZeroExit(t *testing.T) {
 	res := runCommand(t, map[string]any{"command": "false"})
 	if res.Status != StatusCrit {

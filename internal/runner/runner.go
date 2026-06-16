@@ -6,6 +6,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"io"
 	"sort"
 	"sync"
 	"time"
@@ -192,6 +193,33 @@ func (r *Runner) Report(ctx context.Context, results []check.Result) error {
 		}
 		if err := br.reporter.Report(ctx, filtered); err != nil {
 			errs = append(errs, fmt.Errorf("reporter %q: %w", br.reporter.Name(), err))
+		}
+	}
+	if len(errs) > 0 {
+		return joinErrors(errs)
+	}
+	return nil
+}
+
+// Close releases resources held by checks and reporters that implement
+// io.Closer — e.g. an open log file or a reporter's/check's idle HTTP
+// connections. It is safe to call once after all runs have finished (daemon
+// shutdown, or before a one-shot process exits) and aggregates any close
+// errors. After Close the Runner must not be reused.
+func (r *Runner) Close() error {
+	var errs []error
+	for _, br := range r.reporters {
+		if c, ok := br.reporter.(io.Closer); ok {
+			if err := c.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("reporter %q: %w", br.reporter.Name(), err))
+			}
+		}
+	}
+	for _, bc := range r.checks {
+		if c, ok := bc.check.(io.Closer); ok {
+			if err := c.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("check %q: %w", bc.check.Name(), err))
+			}
 		}
 	}
 	if len(errs) > 0 {

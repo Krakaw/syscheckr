@@ -65,7 +65,11 @@ func (c *httpCheck) Run(ctx context.Context) Result {
 		return c.Crit(fmt.Sprintf("request to %s failed", c.url), map[string]any{"error": err.Error()})
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	// Drain the body so the keep-alive connection can return to the pool and be
+	// reused across runs, but cap the read so probing a large endpoint doesn't
+	// download its whole body each tick. Responses larger than the cap simply
+	// don't get reused — no leak, just a fresh connection next time.
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024))
 	latency := time.Since(start)
 	latencyMS := float64(latency.Microseconds()) / 1000.0
 

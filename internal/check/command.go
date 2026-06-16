@@ -87,9 +87,12 @@ func (c *commandCheck) Run(ctx context.Context) Result {
 	} else {
 		cmd = exec.CommandContext(ctx, c.command, c.args...)
 	}
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	// Cap captured output so a command emitting unbounded output (e.g. a runaway
+	// `yes`) cannot exhaust memory before its timeout fires. The cap is far
+	// larger than the truncated `output` detail, leaving room for pattern matching.
+	out := &limitedBuffer{max: maxCommandOutput}
+	cmd.Stdout = out
+	cmd.Stderr = out
 	runErr := cmd.Run()
 	output := strings.TrimRight(out.String(), "\n")
 	exitCode := cmd.ProcessState.ExitCode()
@@ -128,3 +131,29 @@ func truncate(s string, max int) string {
 	}
 	return s[:max] + "…"
 }
+
+// maxCommandOutput caps how much combined stdout/stderr a command check keeps in
+// memory. Output beyond this is discarded.
+const maxCommandOutput = 1 << 20 // 1 MiB
+
+// limitedBuffer accumulates up to max bytes and silently discards the rest. It
+// never returns a short write or error, so the child process is not killed by a
+// broken pipe when output exceeds the cap. exec.Cmd serializes stdout/stderr
+// onto a single writer when both point here, so Write needs no locking.
+type limitedBuffer struct {
+	buf bytes.Buffer
+	max int
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	if remaining := b.max - b.buf.Len(); remaining > 0 {
+		if len(p) > remaining {
+			b.buf.Write(p[:remaining])
+		} else {
+			b.buf.Write(p)
+		}
+	}
+	return len(p), nil
+}
+
+func (b *limitedBuffer) String() string { return b.buf.String() }

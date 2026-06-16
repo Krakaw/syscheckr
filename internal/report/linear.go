@@ -158,7 +158,8 @@ func (r *linearReporter) createIssue(ctx context.Context, res check.Result) erro
 		return fmt.Errorf("linear request: %w", err)
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	io.Copy(io.Discard, resp.Body) // drain remainder so the conn is reused
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("linear status %d: %s", resp.StatusCode, string(raw))
 	}

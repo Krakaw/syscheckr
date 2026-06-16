@@ -108,6 +108,7 @@ func (r *slackReporter) Report(ctx context.Context, results []check.Result) erro
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	io.Copy(io.Discard, resp.Body) // drain remainder so the conn is reused
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("slack returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}

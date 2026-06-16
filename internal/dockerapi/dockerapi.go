@@ -16,10 +16,22 @@ import (
 	"time"
 )
 
-// Client talks to a single Docker engine endpoint.
+// Client talks to a single Docker engine endpoint. A Client is safe for
+// concurrent use and reuses connections via its underlying transport, so build
+// one per check and keep it for the process lifetime rather than per request.
 type Client struct {
 	http *http.Client
 	host string // for error messages
+}
+
+// Close releases any idle keep-alive connections held by the client's
+// transport. Safe to call when the client is no longer needed (e.g. daemon
+// shutdown).
+func (c *Client) Close() error {
+	if t, ok := c.http.Transport.(*http.Transport); ok {
+		t.CloseIdleConnections()
+	}
+	return nil
 }
 
 // Container is the subset of the /containers/json response we care about.
@@ -130,7 +142,12 @@ func (c *Client) ListContainers(ctx context.Context, all bool) ([]Container, err
 	if err != nil {
 		return nil, fmt.Errorf("list containers: %w", err)
 	}
-	defer resp.Body.Close()
+	// Drain any unread body before closing so the keep-alive connection is
+	// returned to the transport's idle pool for reuse rather than discarded.
+	defer func() {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return nil, fmt.Errorf("list containers: status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))

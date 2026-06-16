@@ -2,7 +2,7 @@
 *.tmp
 .syscheckr-state.json
 syscheckr-state.json
-syscheckr.yaml
+*syscheckr.yaml
 .env
 *.env
 secrets.env

@@ -110,6 +110,12 @@ func (s *Scheduler) Run(ctx context.Context) error {
 		defer cancel()
 		_ = srv.Shutdown(shutCtx)
 	}
+
+	// Release check/reporter resources (open log files, idle HTTP connections)
+	// now that no more jobs will run.
+	if err := s.runner.Close(); err != nil {
+		s.log.Warn("error closing runner", "error", err)
+	}
 	return nil
 }
 
