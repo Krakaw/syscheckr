@@ -25,6 +25,10 @@ Or build from source (any platform with Go 1.25+):
 go build -o syscheckr ./cmd/syscheckr
 ```
 
+Once installed, `syscheckr update` self-updates in place — it resolves the latest
+release (or `--version vX.Y.Z`), verifies the checksum, and atomically replaces the
+running binary. Re-run with `sudo` if syscheckr lives in a root-owned directory.
+
 ## Quick start
 
 ```sh
@@ -45,6 +49,7 @@ critical or unknown — so a cron job fails loudly only on real problems.
 | `daemon` | Run checks on their cron `schedule` until SIGINT/SIGTERM. `--healthz :8080` serves a JSON health endpoint. |
 | `validate` | Parse and validate the config without running anything. |
 | `list-checks` / `list-reporters` | Print registered types. |
+| `update` | Download the latest release (or `--version vX.Y.Z`) and replace this binary in place. |
 | `version` | Print build info. |
 
 ## Configuration

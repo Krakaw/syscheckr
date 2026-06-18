@@ -24,7 +24,7 @@ func TestRootHasSubcommands(t *testing.T) {
 	root := Root()
 	want := map[string]bool{
 		"run": false, "daemon": false, "validate": false,
-		"list-checks": false, "list-reporters": false, "version": false,
+		"list-checks": false, "list-reporters": false, "update": false, "version": false,
 	}
 	for _, c := range root.Commands() {
 		want[c.Name()] = true
