@@ -32,7 +32,8 @@ running binary. Re-run with `sudo` if syscheckr lives in a root-owned directory.
 ## Quick start
 
 ```sh
-cp config.example.yaml syscheckr.yaml      # edit to taste
+./syscheckr init                           # interactive: pick checks/reporters, writes syscheckr.yaml
+# or: cp config.example.yaml syscheckr.yaml   # start from the annotated example instead
 ./syscheckr validate -c syscheckr.yaml     # parse + validate, no execution
 ./syscheckr run -c syscheckr.yaml          # run once, report, exit
 ./syscheckr daemon -c syscheckr.yaml       # run on schedules until Ctrl-C
@@ -45,10 +46,11 @@ critical or unknown — so a cron job fails loudly only on real problems.
 
 | Command | Description |
 |---|---|
+| `init` | Interactively pick check/reporter types and write a starter config (`-o -` for stdout, `--force` to overwrite). |
 | `run` | Run every check once, report, exit (0 ok/warn, 2 crit/unknown). |
 | `daemon` | Run checks on their cron `schedule` until SIGINT/SIGTERM. `--healthz :8080` serves a JSON health endpoint. |
 | `validate` | Parse and validate the config without running anything. |
-| `list-checks` / `list-reporters` | Print registered types. |
+| `list-checks` / `list-reporters` | Print registered types (`--describe` shows each type's config fields). |
 | `update` | Download the latest release (or `--version vX.Y.Z`) and replace this binary in place. |
 | `version` | Print build info. |
 

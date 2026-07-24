@@ -7,7 +7,7 @@ LDFLAGS := -X github.com/Krakaw/syscheckr/internal/version.Version=$(VERSION) \
            -X github.com/Krakaw/syscheckr/internal/version.Commit=$(COMMIT) \
            -X github.com/Krakaw/syscheckr/internal/version.Date=$(DATE)
 
-.PHONY: build test vet tidy run clean
+.PHONY: build test vet tidy run clean release
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) $(PKG)
@@ -26,3 +26,7 @@ run: build
 
 clean:
 	rm -f $(BINARY)
+
+# make release [BUMP=major|minor|patch|x.y.z] — bumps VERSION, tags, pushes (default: patch)
+release:
+	scripts/release.sh $(BUMP)

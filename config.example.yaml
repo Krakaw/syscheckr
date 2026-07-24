@@ -1,5 +1,8 @@
 # syscheckr example configuration.
 #
+# Prefer to generate your own? Run `syscheckr init` for an interactive wizard
+# that writes a minimal config for just the checks/reporters you pick.
+#
 # Secrets use ${ENV} interpolation: ${VAR} expands to the environment variable,
 # ${VAR:-default} falls back to a literal when unset. Run `syscheckr validate`
 # to check this file, `syscheckr run` for a one-shot pass, or

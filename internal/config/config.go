@@ -14,10 +14,10 @@ import (
 
 // Config is the top-level configuration document.
 type Config struct {
-	Defaults  Defaults         `yaml:"defaults"`
+	Defaults  Defaults         `yaml:"defaults,omitempty"`
 	Checks    []CheckConfig    `yaml:"checks"`
-	Reporters []ReporterConfig `yaml:"reporters"`
-	State     StateConfig      `yaml:"state"`
+	Reporters []ReporterConfig `yaml:"reporters,omitempty"`
+	State     StateConfig      `yaml:"state,omitempty"`
 }
 
 // Defaults holds settings applied to checks that do not override them.
@@ -34,21 +34,21 @@ type StateConfig struct {
 type CheckConfig struct {
 	Name     string         `yaml:"name"`
 	Type     string         `yaml:"type"`
-	Schedule string         `yaml:"schedule"` // cron expression, daemon mode only
-	Tags     []string       `yaml:"tags"`
-	Timeout  time.Duration  `yaml:"timeout"` // overrides Defaults.Timeout
-	Config   map[string]any `yaml:"config"`
+	Schedule string         `yaml:"schedule,omitempty"` // cron expression, daemon mode only
+	Tags     []string       `yaml:"tags,omitempty"`
+	Timeout  time.Duration  `yaml:"timeout,omitempty"` // overrides Defaults.Timeout
+	Config   map[string]any `yaml:"config,omitempty"`
 }
 
 // ReporterConfig is one entry in the reporters list.
 type ReporterConfig struct {
 	Name        string         `yaml:"name"`
 	Type        string         `yaml:"type"`
-	MinSeverity string         `yaml:"min_severity"`
-	Checks      []string       `yaml:"checks"`
-	Tags        []string       `yaml:"tags"`
-	OnlyFailing bool           `yaml:"only_failing"`
-	Config      map[string]any `yaml:"config"`
+	MinSeverity string         `yaml:"min_severity,omitempty"`
+	Checks      []string       `yaml:"checks,omitempty"`
+	Tags        []string       `yaml:"tags,omitempty"`
+	OnlyFailing bool           `yaml:"only_failing,omitempty"`
+	Config      map[string]any `yaml:"config,omitempty"`
 }
 
 // envRef matches ${VAR} and ${VAR:-default} style references.

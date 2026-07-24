@@ -28,7 +28,7 @@ func Root() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(runCmd(), daemonCmd(), validateCmd(), listChecksCmd(), listReportersCmd(), updateCmd(), versionCmd())
+	root.AddCommand(initCmd(), runCmd(), daemonCmd(), validateCmd(), listChecksCmd(), listReportersCmd(), updateCmd(), versionCmd())
 	return root
 }
 
@@ -168,23 +168,37 @@ func validateCmd() *cobra.Command {
 }
 
 func listChecksCmd() *cobra.Command {
-	return &cobra.Command{
+	var describe bool
+	cmd := &cobra.Command{
 		Use:   "list-checks",
 		Short: "List registered check types",
 		Run: func(_ *cobra.Command, _ []string) {
+			if describe {
+				describeTypes(os.Stdout, check.Types(), check.Specs)
+				return
+			}
 			fmt.Println(strings.Join(check.Types(), "\n"))
 		},
 	}
+	cmd.Flags().BoolVar(&describe, "describe", false, "show each type's config fields")
+	return cmd
 }
 
 func listReportersCmd() *cobra.Command {
-	return &cobra.Command{
+	var describe bool
+	cmd := &cobra.Command{
 		Use:   "list-reporters",
 		Short: "List registered reporter types",
 		Run: func(_ *cobra.Command, _ []string) {
+			if describe {
+				describeTypes(os.Stdout, report.Types(), report.Specs)
+				return
+			}
 			fmt.Println(strings.Join(report.Types(), "\n"))
 		},
 	}
+	cmd.Flags().BoolVar(&describe, "describe", false, "show each type's config fields")
+	return cmd
 }
 
 func versionCmd() *cobra.Command {
