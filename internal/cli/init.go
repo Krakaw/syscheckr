@@ -31,8 +31,10 @@ func initCmd() *cobra.Command {
 					return fmt.Errorf("cannot access %s: %w", output, err)
 				}
 			}
+			sc := bufio.NewScanner(os.Stdin)
+			sc.Buffer(make([]byte, 0, 64*1024), 1024*1024) // allow long answers (certs, JSON headers)
 			// Prompts go to stderr so `init -o -` leaves stdout as clean YAML for piping.
-			cfg, err := runWizard(bufio.NewScanner(os.Stdin), os.Stderr)
+			cfg, err := runWizard(sc, os.Stderr)
 			if err != nil {
 				return err
 			}
@@ -49,7 +51,7 @@ func initCmd() *cobra.Command {
 				_, err = os.Stdout.Write(out)
 				return err
 			}
-			if err := os.WriteFile(output, out, 0o644); err != nil {
+			if err := os.WriteFile(output, out, 0o600); err != nil { // may hold secrets
 				return err
 			}
 			fmt.Printf("wrote %s — edit it, then run `syscheckr validate`\n", output)
@@ -228,7 +230,7 @@ func describeTypes(w io.Writer, types []string, specs map[string][]check.Field) 
 			switch {
 			case f.Required:
 				meta = "(required)"
-			case meaningful(f.Default):
+			case f.Default != nil:
 				meta = fmt.Sprintf("= %v", f.Default)
 			default:
 				meta = "(optional)"
