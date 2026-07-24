@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -23,11 +24,15 @@ func initCmd() *cobra.Command {
 		Short: "Interactively generate a starter config",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if output != "-" && !force {
-				if _, err := os.Stat(output); err == nil {
+				switch _, err := os.Stat(output); {
+				case err == nil:
 					return fmt.Errorf("%s already exists; use --force to overwrite or -o to choose another path", output)
+				case !errors.Is(err, os.ErrNotExist):
+					return fmt.Errorf("cannot access %s: %w", output, err)
 				}
 			}
-			cfg, err := runWizard(bufio.NewScanner(os.Stdin), os.Stdout)
+			// Prompts go to stderr so `init -o -` leaves stdout as clean YAML for piping.
+			cfg, err := runWizard(bufio.NewScanner(os.Stdin), os.Stderr)
 			if err != nil {
 				return err
 			}
