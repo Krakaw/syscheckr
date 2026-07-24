@@ -113,7 +113,7 @@ reporters:
 | `cpu` | CPU busy % over a sample | `sample`, `warn_percent`, `crit_percent` |
 | `memory` | Virtual memory used % | `warn_percent`, `crit_percent` |
 | `docker_running` | Docker daemon reachable | — |
-| `docker_container` | Named container in expected state | `name`, `state`, `healthy` |
+| `docker_container` | Named container (or all `prefix` replicas) in expected state | `name`\|`prefix`, `state`, `healthy` |
 | `log` | Count regex matches in a file | `path`, `pattern`, `window`, `warn_count`, `crit_count` |
 | `http` | Probe an endpoint (status + latency) | `url`, `expect_status`, `warn_ms`, `crit_ms`, `headers` |
 | `command` | Run any command, map exit/output to status | `command`, `args`, `shell`, `pwd`, `expect_exit`, `match_pattern`, `warn_pattern`, `crit_pattern` |

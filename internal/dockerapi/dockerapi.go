@@ -55,6 +55,19 @@ func (c Container) HasName(name string) bool {
 	return false
 }
 
+// NameHasPrefix reports whether any of the container's names starts with the
+// given prefix (Docker prefixes names with "/"). Used to match scaled replicas
+// like dev-api-1, dev-api-2 from a single "dev-api-" prefix.
+func (c Container) NameHasPrefix(prefix string) bool {
+	want := "/" + strings.TrimPrefix(prefix, "/")
+	for _, n := range c.Names {
+		if strings.HasPrefix(n, want) {
+			return true
+		}
+	}
+	return false
+}
+
 // Health extracts a Docker health phrase from Status when present, e.g. the
 // "healthy" in "Up 3 hours (healthy)". Only recognized health states are
 // returned; parenthesized text like an exit code ("Exited (0) ago") is ignored.

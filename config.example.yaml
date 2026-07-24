@@ -58,7 +58,9 @@ checks:
     schedule: "@every 1m"
     tags: [docker]
     config:
-      name: my-api          # container name (without leading slash)
+      name: my-api          # exact container name (without leading slash)
+      # prefix: dev-api-    # OR: match all scaled replicas (dev-api-1, dev-api-2, ...);
+      #                     #     all must match state, at least one must exist
       state: running
       healthy: false        # set true to also require a (healthy) status
 

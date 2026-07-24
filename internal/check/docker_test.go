@@ -97,6 +97,51 @@ func TestDockerContainerRequiresName(t *testing.T) {
 	if _, err := newDockerContainerCheck("api", map[string]any{}); err == nil {
 		t.Error("expected error when name missing")
 	}
+	// name and prefix are mutually exclusive.
+	if _, err := newDockerContainerCheck("api", map[string]any{"name": "x", "prefix": "y"}); err == nil {
+		t.Error("expected error when both name and prefix given")
+	}
+}
+
+const replicasBody = `[
+	{"Id":"1","Names":["/dev-api-1"],"Image":"api:1","State":"running","Status":"Up 3 hours (healthy)"},
+	{"Id":"2","Names":["/dev-api-2"],"Image":"api:1","State":"running","Status":"Up 2 hours (healthy)"},
+	{"Id":"4","Names":["/dev-api-4"],"Image":"api:1","State":"running","Status":"Up 1 hour (healthy)"},
+	{"Id":"o","Names":["/dev-worker-1"],"Image":"w:1","State":"exited","Status":"Exited (0) ago"}
+]`
+
+func TestDockerContainerPrefixAllRunning(t *testing.T) {
+	fakeDocker(t, replicasBody, 200)
+	c, err := newDockerContainerCheck("api", map[string]any{"prefix": "dev-api-"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := c.Run(context.Background())
+	if res.Status != StatusOK {
+		t.Fatalf("want ok when all replicas running, got %v (%s)", res.Status, res.Summary)
+	}
+}
+
+func TestDockerContainerPrefixOneDown(t *testing.T) {
+	body := `[
+		{"Id":"1","Names":["/dev-api-1"],"Image":"api:1","State":"running","Status":"Up 3 hours"},
+		{"Id":"2","Names":["/dev-api-2"],"Image":"api:1","State":"exited","Status":"Exited (1) ago"}
+	]`
+	fakeDocker(t, body, 200)
+	c, _ := newDockerContainerCheck("api", map[string]any{"prefix": "dev-api-"})
+	res := c.Run(context.Background())
+	if res.Status != StatusCrit {
+		t.Fatalf("want crit when one replica is down, got %v (%s)", res.Status, res.Summary)
+	}
+}
+
+func TestDockerContainerPrefixNoMatch(t *testing.T) {
+	fakeDocker(t, replicasBody, 200)
+	c, _ := newDockerContainerCheck("api", map[string]any{"prefix": "ghost-"})
+	res := c.Run(context.Background())
+	if res.Status != StatusCrit {
+		t.Fatalf("want crit when prefix matches nothing, got %v", res.Status)
+	}
 }
 
 // Docker checks build their client lazily and reuse it across runs (instead of

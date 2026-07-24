@@ -45,7 +45,8 @@ type dockerRunningCheck struct {
 type dockerContainerCheck struct {
 	Base
 	dockerClient
-	container string
+	container string // exact name; empty when prefix is set
+	prefix    string // match all containers whose name starts with this
 	wantState string
 	healthy   bool
 }
@@ -72,19 +73,28 @@ func (c *dockerRunningCheck) Run(ctx context.Context) Result {
 
 // newDockerContainerCheck config keys:
 //
-//	name:    container name to look for (required)
+//	name:    exact container name to look for
+//	prefix:  match every container whose name starts with this (e.g. "dev-api-"
+//	         to check all scaled replicas dev-api-1, dev-api-2, ...); every
+//	         match must satisfy state/healthy, and at least one must exist
 //	state:   expected state, default "running"
 //	healthy: if true, require a "(healthy)" status (default false)
+//
+// Exactly one of name or prefix is required.
 func newDockerContainerCheck(name string, cfg map[string]any) (Check, error) {
 	m := confutil.New(name, cfg)
 	c := &dockerContainerCheck{
 		Base:      Base{CheckName: name},
-		container: m.Required("name"),
+		container: m.String("name"),
+		prefix:    m.String("prefix"),
 		wantState: strings.ToLower(m.StringDefault("state", "running")),
 		healthy:   m.Bool("healthy", false),
 	}
 	if err := m.Err(); err != nil {
 		return nil, err
+	}
+	if (c.container == "") == (c.prefix == "") {
+		return nil, fmt.Errorf("%s: exactly one of \"name\" or \"prefix\" is required", name)
 	}
 	return c, nil
 }
@@ -99,32 +109,46 @@ func (c *dockerContainerCheck) Run(ctx context.Context) Result {
 		return c.Unknown("cannot list containers", err)
 	}
 
-	var found *dockerapi.Container
+	var matches []dockerapi.Container
 	for i := range containers {
-		if containers[i].HasName(c.container) {
-			found = &containers[i]
-			break
+		if (c.prefix != "" && containers[i].NameHasPrefix(c.prefix)) ||
+			(c.container != "" && containers[i].HasName(c.container)) {
+			matches = append(matches, containers[i])
 		}
 	}
-	if found == nil {
-		return c.Crit(fmt.Sprintf("container %q not found", c.container),
-			map[string]any{"container": c.container})
+	if len(matches) == 0 {
+		return c.Crit(fmt.Sprintf("%s not found", c.label()),
+			map[string]any{"match": c.label()})
 	}
 
-	details := map[string]any{
-		"container": c.container,
-		"state":     found.State,
-		"status":    found.Status,
-		"image":     found.Image,
-	}
-	if !strings.EqualFold(found.State, c.wantState) {
-		return c.Crit(fmt.Sprintf("container %q is %s, want %s", c.container, found.State, c.wantState), details)
-	}
-	if c.healthy {
-		if h := found.Health(); h != "" && !strings.EqualFold(h, "healthy") {
-			details["health"] = h
-			return c.Crit(fmt.Sprintf("container %q is %s but %s", c.container, found.State, h), details)
+	// Every match must satisfy state (and health, if required); the first
+	// failure wins so the summary names the offending replica.
+	for i := range matches {
+		found := matches[i]
+		details := map[string]any{
+			"container": strings.TrimPrefix(strings.Join(found.Names, ","), "/"),
+			"state":     found.State,
+			"status":    found.Status,
+			"image":     found.Image,
+		}
+		if !strings.EqualFold(found.State, c.wantState) {
+			return c.Crit(fmt.Sprintf("container %q is %s, want %s", details["container"], found.State, c.wantState), details)
+		}
+		if c.healthy {
+			if h := found.Health(); h != "" && !strings.EqualFold(h, "healthy") {
+				details["health"] = h
+				return c.Crit(fmt.Sprintf("container %q is %s but %s", details["container"], found.State, h), details)
+			}
 		}
 	}
-	return c.OK(fmt.Sprintf("container %q is %s", c.container, found.State), details)
+	return c.OK(fmt.Sprintf("%s: %d %s", c.label(), len(matches), c.wantState),
+		map[string]any{"match": c.label(), "count": len(matches)})
+}
+
+// label describes what the check is looking for, for messages and details.
+func (c *dockerContainerCheck) label() string {
+	if c.prefix != "" {
+		return fmt.Sprintf("containers with prefix %q", c.prefix)
+	}
+	return fmt.Sprintf("container %q", c.container)
 }
