@@ -5,6 +5,7 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	"github.com/Krakaw/syscheckr/internal/check"
 	"github.com/Krakaw/syscheckr/internal/config"
 	"github.com/Krakaw/syscheckr/internal/report"
+	"github.com/Krakaw/syscheckr/internal/state"
 )
 
 // boundCheck pairs a constructed Check with the per-check settings the runner
@@ -36,12 +38,21 @@ type Runner struct {
 	checks    []boundCheck
 	reporters []boundReporter
 	clock     func() time.Time
+	// store remembers the status each reporter was last told about each check,
+	// so alerts fire on change rather than every run.
+	store *state.Store
 }
 
 // New builds a Runner from a validated config, constructing every check and
 // reporter. It returns an error aggregating any construction failure.
 func New(cfg *config.Config) (*Runner, error) {
 	r := &Runner{clock: time.Now}
+
+	store, err := state.Open(cfg.State.Path)
+	if err != nil {
+		return nil, err
+	}
+	r.store = store
 
 	for _, cc := range cfg.Checks {
 		c, err := check.New(cc.Type, cc.Name, cc.Config)
@@ -76,6 +87,20 @@ func buildRoute(rc config.ReporterConfig) (report.Route, error) {
 		Checks:      rc.Checks,
 		Tags:        rc.Tags,
 		OnlyFailing: rc.OnlyFailing,
+	}
+	// Type-dependent defaults: a log reporter is a record of every run, not an
+	// alert; linear kept a 24h re-file window before it was generalised here.
+	switch rc.Type {
+	case "log":
+		route.RepeatAlerts = true
+	case "linear":
+		route.DedupeWindow = 24 * time.Hour
+	}
+	if rc.RepeatAlerts != nil {
+		route.RepeatAlerts = *rc.RepeatAlerts
+	}
+	if rc.DedupeWindow != nil {
+		route.DedupeWindow = *rc.DedupeWindow
 	}
 	if rc.MinSeverity != "" {
 		s, err := check.ParseStatus(rc.MinSeverity)
@@ -184,21 +209,106 @@ func mergeTags(a, b []string) []string {
 
 // Report routes results to every reporter and returns a combined error if any
 // reporter fails. Reporters run sequentially; a failure does not stop the rest.
+//
+// Unless the route sets RepeatAlerts, a result is only sent when its status
+// changed since that reporter was last told about the check (or the route's
+// DedupeWindow has elapsed), so a disk sitting at 85% alerts once instead of
+// every run. This has to happen here rather than in Route.Filter or a reporter:
+// a route with only_failing or min_severity never sees the OK result, so the
+// recovery transition is only observable where every result meets every
+// reporter.
 func (r *Runner) Report(ctx context.Context, results []check.Result) error {
+	now := r.clock()
+	dirty := false
+
+	// Whether a status changed is a property of the check, not of any route: a
+	// reporter with only_failing or min_severity never sees the OK result, so
+	// tracking "what this reporter was last told" would miss the recovery and
+	// then swallow the next threshold crossing.
+	changed := make(map[string]bool, len(results))
+	for _, res := range results {
+		last, ok := r.store.Get(statusKey(res.Check))
+		changed[res.Check] = !ok || last.Status != res.Status.String()
+	}
+
 	var errs []error
 	for _, br := range r.reporters {
 		filtered := br.route.Filter(results)
+		if !br.route.RepeatAlerts {
+			filtered = r.unnotified(br.reporter.Name(), br.route, filtered, changed, now)
+		}
 		if len(filtered) == 0 {
 			continue
 		}
+		// undelivered stays nil on success. On failure it names the checks to
+		// leave unmarked so the next run retries them; an all-or-nothing
+		// reporter (one HTTP call for the batch) fails the whole slice.
+		var undelivered map[string]bool
 		if err := br.reporter.Report(ctx, filtered); err != nil {
 			errs = append(errs, fmt.Errorf("reporter %q: %w", br.reporter.Name(), err))
+			var partial *report.PartialError
+			if !errors.As(err, &partial) {
+				continue
+			}
+			undelivered = partial.Failed
+		}
+		if br.route.RepeatAlerts {
+			continue // never suppressed, so nothing to remember
+		}
+		for _, res := range filtered {
+			if undelivered[res.Check] {
+				continue
+			}
+			r.store.Set(notifyKey(br.reporter.Name(), res.Check), state.Entry{
+				Time:   now,
+				Status: res.Status.String(),
+			})
+			dirty = true
+		}
+	}
+
+	for _, res := range results {
+		if changed[res.Check] {
+			r.store.Set(statusKey(res.Check), state.Entry{Time: now, Status: res.Status.String()})
+			dirty = true
+		}
+	}
+	if dirty {
+		if err := r.store.Flush(); err != nil {
+			errs = append(errs, fmt.Errorf("persist alert state: %w", err))
 		}
 	}
 	if len(errs) > 0 {
 		return joinErrors(errs)
 	}
 	return nil
+}
+
+// unnotified drops results whose status has not moved since this reporter was
+// last alerted, unless the route's dedupe window has since elapsed.
+func (r *Runner) unnotified(reporter string, route report.Route, results []check.Result, changed map[string]bool, now time.Time) []check.Result {
+	out := make([]check.Result, 0, len(results))
+	for _, res := range results {
+		last, notified := r.store.Get(notifyKey(reporter, res.Check))
+		send := changed[res.Check] || // the check moved, even if this route couldn't see it
+			!notified || // a reporter that has never been told about this check
+			last.Status != res.Status.String() || // told, but at a different status: a
+			// delivery that failed still holds the older status here, and without this
+			// the retry is lost as soon as the check stops changing
+			(route.DedupeWindow > 0 && now.Sub(last.Time) >= route.DedupeWindow)
+		if send {
+			out = append(out, res)
+		}
+	}
+	return out
+}
+
+// statusKey holds a check's last observed status; notifyKey holds when a
+// reporter was last alerted about it, for the dedupe window.
+func statusKey(checkName string) string { return "status:" + checkName }
+
+func notifyKey(reporter, checkName string) string {
+	return "notify:" + reporter + ":" + checkName
 }
 
 // Close releases resources held by checks and reporters that implement

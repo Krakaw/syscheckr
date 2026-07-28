@@ -11,26 +11,22 @@ import (
 
 	"github.com/Krakaw/syscheckr/internal/check"
 	"github.com/Krakaw/syscheckr/internal/confutil"
-	"github.com/Krakaw/syscheckr/internal/state"
 )
 
 const linearAPI = "https://api.linear.app/graphql"
 
 // linearReporter creates a Linear issue per failing check via the GraphQL API.
-// To avoid filing a duplicate ticket every run, it records the time each check
-// last filed an issue in a JSON state store and suppresses re-filing within
-// dedupe_window.
+// Duplicate tickets are prevented by the runner's alert-on-change gate, which
+// only hands a result to this reporter when the check's status changed or the
+// route's dedupe_window has elapsed (24h by default for linear).
 type linearReporter struct {
-	name         string
-	apiKey       string
-	teamID       string
-	labelIDs     []string
-	dedupeWindow time.Duration
-	redact       bool
-	store        *state.Store
-	client       *http.Client
-	now          func() time.Time
-	overrideURL  string // api_url config key, for testing against a fake server
+	name        string
+	apiKey      string
+	teamID      string
+	labelIDs    []string
+	redact      bool
+	client      *http.Client
+	overrideURL string // api_url config key, for testing against a fake server
 }
 
 func init() {
@@ -39,40 +35,39 @@ func init() {
 
 // newLinearReporter config keys:
 //
-//	api_key:       Linear API key (required)
-//	team_id:       team UUID to create issues under (required)
-//	label_ids:     list of label UUIDs to attach (optional)
-//	dedupe_window: suppress re-filing for the same check within this window
-//	               (default 24h; 0 disables dedupe)
-//	redact:        strip log samples / command output from the issue body
-//	               (default false)
-//	state_path:    JSON dedupe store path (default "syscheckr-state.json")
+//	api_key:   Linear API key (required)
+//	team_id:   team UUID to create issues under (required)
+//	label_ids: list of label UUIDs to attach (optional)
+//	redact:    strip log samples / command output from the issue body
+//	           (default false)
 func newLinearReporter(name string, cfg map[string]any) (Reporter, error) {
+	// These moved out of the reporter's config block; unknown keys are silently
+	// ignored, so say so rather than letting dedupe quietly change behaviour.
+	for key, moved := range map[string]string{
+		"dedupe_window": "the reporter-level dedupe_window (a sibling of type:, not inside config:)",
+		"state_path":    "the top-level state.path setting",
+	} {
+		if _, ok := cfg[key]; ok {
+			return nil, fmt.Errorf("%s: config %q has moved to %s", name, key, moved)
+		}
+	}
 	m := confutil.New(name, cfg)
 	r := &linearReporter{
-		name:         name,
-		apiKey:       m.Required("api_key"),
-		teamID:       m.Required("team_id"),
-		dedupeWindow: m.Duration("dedupe_window", 24*time.Hour),
-		redact:       m.Bool("redact", false),
-		client:       &http.Client{Timeout: m.Duration("timeout", 15*time.Second)},
-		now:          time.Now,
-		overrideURL:  m.StringDefault("api_url", ""),
+		name:        name,
+		apiKey:      m.Required("api_key"),
+		teamID:      m.Required("team_id"),
+		redact:      m.Bool("redact", false),
+		client:      &http.Client{Timeout: m.Duration("timeout", 15*time.Second)},
+		overrideURL: m.StringDefault("api_url", ""),
 	}
 	if raw, ok := cfg["label_ids"].([]any); ok {
 		for _, l := range raw {
 			r.labelIDs = append(r.labelIDs, fmt.Sprint(l))
 		}
 	}
-	statePath := m.StringDefault("state_path", "syscheckr-state.json")
 	if err := m.Err(); err != nil {
 		return nil, err
 	}
-	store, err := state.Open(statePath)
-	if err != nil {
-		return nil, fmt.Errorf("%s: open dedupe state: %w", name, err)
-	}
-	r.store = store
 	return r, nil
 }
 
@@ -83,22 +78,17 @@ func (r *linearReporter) Report(ctx context.Context, results []check.Result) err
 		results = redactedResults(results)
 	}
 	var errs []error
+	failed := map[string]bool{}
 	for _, res := range results {
-		key := "linear:" + res.Check
-		now := r.now()
-		if r.store.Seen(key, r.dedupeWindow, now) {
-			continue // an issue was filed for this check recently
-		}
 		if err := r.createIssue(ctx, res); err != nil {
 			errs = append(errs, fmt.Errorf("check %q: %w", res.Check, err))
-			continue
-		}
-		if err := r.store.Mark(key, now); err != nil {
-			errs = append(errs, fmt.Errorf("check %q: record dedupe: %w", res.Check, err))
+			failed[res.Check] = true
 		}
 	}
 	if len(errs) > 0 {
-		return joinErrs(errs)
+		// Name the checks that failed so the runner still records the issues
+		// that were filed; otherwise one bad check re-files all the others.
+		return &PartialError{Failed: failed, Err: joinErrs(errs)}
 	}
 	return nil
 }

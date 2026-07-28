@@ -128,7 +128,7 @@ Docker checks talk to the Docker Engine API over the socket from `DOCKER_HOST`
 | `log` | Structured stdout/file output (slog) | `format` (text/json), `output`, `level` |
 | `slack` | Incoming-webhook message, attachment per result | `webhook_url`, `username`, `channel` |
 | `webhook` | POST a JSON payload to any URL | `url`, `headers`, `secret` (HMAC-SHA256), `redact` |
-| `linear` | Create Linear issues for failing checks, deduped | `api_key`, `team_id`, `label_ids`, `dedupe_window`, `redact`, `state_path` |
+| `linear` | Create Linear issues for failing checks | `api_key`, `team_id`, `label_ids`, `redact` |
 
 `redact: true` strips `samples` (matched log lines) and `output` (command stdout) from the data sent to that reporter, so secret-bearing log/command content stays off-box. The `slack` reporter always omits these from its fields.
 
@@ -141,10 +141,43 @@ Each reporter filters which results it sees:
 - `checks` — only these check names.
 - `tags` — only results carrying one of these tags.
 
-So warnings can go to Slack while only criticals open Linear tickets. The Linear
-reporter records a timestamp per check in a JSON state file (`state_path`) and
-suppresses re-filing within `dedupe_window` (default 24h), so you get one ticket
-per check per window rather than one every run.
+So warnings can go to Slack while only criticals open Linear tickets.
+
+### Alert on change
+
+A reporter is only told about a check when its **status changes**, so a disk
+sitting at 85% alerts once instead of every run:
+
+```
+ok → warn   alert          warn → warn  quiet
+warn → crit alert          crit → crit  quiet
+crit → ok   alert          ok → ok      quiet
+```
+
+Recovery (`→ ok`) only reaches reporters whose route accepts OK results, so a
+reporter with `only_failing: true` stays silent on recovery. Two per-reporter
+knobs:
+
+- `repeat_alerts: true` — send every run, as before. Defaults to `true` for the
+  `log` reporter, which is a record rather than an alert, and `false` elsewhere.
+- `dedupe_window: 24h` — re-send an unchanged status once this long has passed.
+  Defaults to `24h` for `linear` (one ticket per check per day while it stays
+  failing) and `0` — change only — elsewhere; set it to `0` explicitly on a
+  linear reporter to get change-only tickets. A status change always breaks
+  through the window, so an escalation to crit is never held back.
+
+```yaml
+reporters:
+  - name: slack-alerts
+    type: slack
+    min_severity: warn
+    dedupe_window: 4h       # nag every 4h while it stays broken
+```
+
+The last-alerted status per reporter/check lives in a JSON file so this works
+under cron (`syscheckr run`) as well as `daemon`; set its location with
+`state.path` (default `syscheckr-state.json`). A reporter that fails to deliver
+is not recorded, so the next run retries it.
 
 ## Extending
 

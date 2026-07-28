@@ -26,11 +26,9 @@ var Specs = map[string][]check.Field{
 	"linear": {
 		{Key: "api_key", Required: true, Prompt: "Linear API key"},
 		{Key: "team_id", Required: true, Prompt: "Linear team ID"},
-		{Key: "dedupe_window", Default: "24h", Prompt: "suppress re-filing within this window (0 disables)"},
 		{Key: "redact", Default: false, Prompt: "strip log samples / command output from the issue"},
 		{Key: "timeout", Default: "15s", Prompt: "request timeout"},
 		{Key: "api_url", Prompt: "override the Linear API URL"},
-		{Key: "state_path", Default: "syscheckr-state.json", Prompt: "JSON dedupe store path"},
 		{Key: "label_ids", Prompt: "list of Linear label IDs to attach"},
 	},
 }

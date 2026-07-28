@@ -68,8 +68,20 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-# syscheckr writes nothing by default; add ReadWritePaths= if a log reporter
-# targets a file path the daemon must create or append to.
+
+# syscheckr remembers which alerts it has already sent so a check sitting at
+# warn does not re-alert every run. systemd creates /var/lib/syscheckr owned by
+# User= and keeps it writable under ProtectSystem=strict; point the config at it:
+#
+#   state:
+#     path: /var/lib/syscheckr/state.json
+#
+# Without this the daemon's working directory is /, which is read-only here and
+# every run logs a "persist alert state" error.
+StateDirectory=syscheckr
+
+# Add ReadWritePaths= as well if a log reporter targets a file path the daemon
+# must create or append to.
 
 [Install]
 WantedBy=multi-user.target

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/Krakaw/syscheckr/internal/check"
 )
@@ -67,6 +68,13 @@ type Route struct {
 	Checks      []string     // if non-empty, only these check names match
 	Tags        []string     // if non-empty, result must carry one of these tags
 	OnlyFailing bool         // if true, OK results are dropped regardless of MinSeverity
+	// RepeatAlerts sends matching results every run. When false (the default
+	// for everything but the log reporter) a result is only sent when its
+	// status changed since this reporter was last told about that check.
+	RepeatAlerts bool
+	// DedupeWindow re-sends an unchanged status once this long has passed.
+	// 0 means alert on change only.
+	DedupeWindow time.Duration
 }
 
 // Filter returns the subset of results that match the route.
@@ -91,6 +99,18 @@ func (r Route) Filter(results []check.Result) []check.Result {
 	}
 	return out
 }
+
+// PartialError is returned by a reporter that delivers each result separately
+// (linear files one issue per check) so the runner can record the ones that
+// landed. Without it a single failure would retry the whole batch next run,
+// re-delivering everything that already succeeded.
+type PartialError struct {
+	Failed map[string]bool // check names that did not deliver
+	Err    error
+}
+
+func (e *PartialError) Error() string { return e.Err.Error() }
+func (e *PartialError) Unwrap() error { return e.Err }
 
 // verboseDetailKeys are detail keys that can carry raw, potentially sensitive
 // content (log lines, command stdout). Reporters that ship details to external

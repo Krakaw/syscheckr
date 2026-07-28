@@ -94,7 +94,8 @@ checks:
       warn_pattern: "expiring"
 
 reporters:
-  # Always-on console output. No min_severity means it sees every result.
+  # Always-on console output. No min_severity means it sees every result, and
+  # the log reporter is a record rather than an alert, so it repeats every run.
   - name: console
     type: log
     config:
@@ -118,13 +119,17 @@ reporters:
       secret: ${OPS_WEBHOOK_SECRET}        # optional HMAC signing
       redact: false                        # true strips log samples / command output from the payload
 
-  # Linear tickets for criticals, deduped so you get one ticket per check per day.
+  # Linear tickets for criticals, one per check per day while it stays crit.
   - name: linear
     type: linear
     min_severity: crit
+    dedupe_window: 24h                     # default for linear; 0 = on change only
     config:
       api_key: ${LINEAR_API_KEY}
       team_id: ${LINEAR_TEAM_ID}
-      dedupe_window: 24h
       redact: true                         # keep log samples / command output out of tickets
-      state_path: .syscheckr-state.json
+
+# Remembers the status each reporter was last alerted about, so a check sitting
+# at warn fires once instead of every run.
+state:
+  path: syscheckr-state.json
