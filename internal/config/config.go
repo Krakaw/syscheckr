@@ -25,7 +25,8 @@ type Defaults struct {
 	Timeout time.Duration `yaml:"timeout"`
 }
 
-// StateConfig configures the on-disk state store used for reporter dedupe.
+// StateConfig configures the on-disk state store that remembers which alerts
+// each reporter has already been sent.
 type StateConfig struct {
 	Path string `yaml:"path"`
 }
@@ -42,13 +43,21 @@ type CheckConfig struct {
 
 // ReporterConfig is one entry in the reporters list.
 type ReporterConfig struct {
-	Name        string         `yaml:"name"`
-	Type        string         `yaml:"type"`
-	MinSeverity string         `yaml:"min_severity,omitempty"`
-	Checks      []string       `yaml:"checks,omitempty"`
-	Tags        []string       `yaml:"tags,omitempty"`
-	OnlyFailing bool           `yaml:"only_failing,omitempty"`
-	Config      map[string]any `yaml:"config,omitempty"`
+	Name        string   `yaml:"name"`
+	Type        string   `yaml:"type"`
+	MinSeverity string   `yaml:"min_severity,omitempty"`
+	Checks      []string `yaml:"checks,omitempty"`
+	Tags        []string `yaml:"tags,omitempty"`
+	OnlyFailing bool     `yaml:"only_failing,omitempty"`
+	// RepeatAlerts sends a result every run instead of only when the status
+	// changes. A pointer so "unset" differs from "false": it defaults to true
+	// for the log reporter, which is a record rather than an alert.
+	RepeatAlerts *bool `yaml:"repeat_alerts,omitempty"`
+	// DedupeWindow re-sends an unchanged status after this long. 0 means alert
+	// on change only. A pointer for the same reason as RepeatAlerts: linear
+	// defaults to 24h, so an explicit 0 has to be distinguishable from unset.
+	DedupeWindow *time.Duration `yaml:"dedupe_window,omitempty"`
+	Config       map[string]any `yaml:"config,omitempty"`
 }
 
 // envRef matches ${VAR} and ${VAR:-default} style references.
@@ -98,6 +107,11 @@ func (c *Config) applyDefaults() {
 	if c.Defaults.Timeout == 0 {
 		c.Defaults.Timeout = 10 * time.Second
 	}
+	if c.State.Path == "" {
+		// Alert-on-change needs to survive between one-shot `run` invocations,
+		// so this defaults to a real file rather than an in-memory store.
+		c.State.Path = "syscheckr-state.json"
+	}
 	for i := range c.Checks {
 		if c.Checks[i].Timeout == 0 {
 			c.Checks[i].Timeout = c.Defaults.Timeout
@@ -143,6 +157,11 @@ func (c *Config) Validate() error {
 			if !validSeverity(rp.MinSeverity) {
 				errs = append(errs, fmt.Sprintf("%s (%s): invalid min_severity %q", where, rp.Name, rp.MinSeverity))
 			}
+		}
+		// Negative would make every run look like the window had elapsed,
+		// quietly undoing alert-on-change.
+		if rp.DedupeWindow != nil && *rp.DedupeWindow < 0 {
+			errs = append(errs, fmt.Sprintf("%s (%s): dedupe_window must not be negative", where, rp.Name))
 		}
 		// Referenced check names should exist, to catch typos early.
 		for _, cn := range rp.Checks {

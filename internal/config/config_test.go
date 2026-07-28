@@ -103,6 +103,76 @@ func TestValidateRequiresChecks(t *testing.T) {
 	}
 }
 
+func TestParseAlertSuppressionFields(t *testing.T) {
+	raw := `
+checks:
+  - name: disk
+    type: disk
+reporters:
+  - name: console
+    type: log
+    repeat_alerts: true
+  - name: slack
+    type: slack
+    dedupe_window: 4h
+`
+	cfg, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Alert-on-change must survive between one-shot runs, so state gets a real
+	// file rather than the in-memory store.
+	if cfg.State.Path != "syscheckr-state.json" {
+		t.Errorf("default state path = %q, want syscheckr-state.json", cfg.State.Path)
+	}
+	if cfg.Reporters[0].RepeatAlerts == nil || !*cfg.Reporters[0].RepeatAlerts {
+		t.Errorf("repeat_alerts = %v, want true", cfg.Reporters[0].RepeatAlerts)
+	}
+	// Unset must stay nil so the log/linear type defaults can still apply.
+	if cfg.Reporters[1].RepeatAlerts != nil {
+		t.Errorf("unset repeat_alerts should be nil, got %v", *cfg.Reporters[1].RepeatAlerts)
+	}
+	if cfg.Reporters[1].DedupeWindow == nil || *cfg.Reporters[1].DedupeWindow != 4*time.Hour {
+		t.Errorf("dedupe_window = %v, want 4h", cfg.Reporters[1].DedupeWindow)
+	}
+	if cfg.Reporters[0].DedupeWindow != nil {
+		t.Errorf("unset dedupe_window should be nil, got %v", *cfg.Reporters[0].DedupeWindow)
+	}
+}
+
+func TestValidateRejectsNegativeDedupeWindow(t *testing.T) {
+	raw := `
+checks:
+  - name: disk
+    type: disk
+reporters:
+  - name: slack
+    type: slack
+    dedupe_window: -1h
+`
+	_, err := Parse([]byte(raw))
+	if err == nil || !strings.Contains(err.Error(), "dedupe_window must not be negative") {
+		t.Fatalf("expected negative dedupe_window error, got %v", err)
+	}
+}
+
+func TestParseHonoursExplicitStatePath(t *testing.T) {
+	raw := `
+checks:
+  - name: disk
+    type: disk
+state:
+  path: /var/lib/syscheckr/state.json
+`
+	cfg, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.State.Path != "/var/lib/syscheckr/state.json" {
+		t.Errorf("state path = %q, want the configured path", cfg.State.Path)
+	}
+}
+
 func TestParseRejectsUnknownField(t *testing.T) {
 	raw := `
 checks:

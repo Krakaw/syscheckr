@@ -6,10 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Krakaw/syscheckr/internal/check"
 )
@@ -118,7 +116,9 @@ func TestSlackReporterBuildsAttachments(t *testing.T) {
 	}
 }
 
-func TestLinearReporterCreatesAndDedupes(t *testing.T) {
+// Dedupe now lives in the runner's alert-on-change gate, so the reporter files
+// an issue for every result it is handed.
+func TestLinearReporterCreatesIssue(t *testing.T) {
 	var calls int
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "" {
@@ -130,44 +130,33 @@ func TestLinearReporterCreatesAndDedupes(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	statePath := filepath.Join(t.TempDir(), "state.json")
 	rep, err := newLinearReporter("linear", map[string]any{
-		"api_key":       "lin_xxx",
-		"team_id":       "team-1",
-		"api_url":       srv.URL,
-		"dedupe_window": "24h",
-		"state_path":    statePath,
+		"api_key": "lin_xxx",
+		"team_id": "team-1",
+		"api_url": srv.URL,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Pin time so the dedupe window is deterministic.
-	lr := rep.(*linearReporter)
-	fixed := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
-	lr.now = func() time.Time { return fixed }
 
 	res := []check.Result{{Check: "disk", Status: check.StatusCrit, Summary: "full"}}
 	if err := rep.Report(context.Background(), res); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 {
-		t.Fatalf("first report should create 1 issue, got %d", calls)
+		t.Fatalf("want 1 issue created, got %d", calls)
 	}
-	// Second report within the window must be suppressed.
-	if err := rep.Report(context.Background(), res); err != nil {
-		t.Fatal(err)
-	}
-	if calls != 1 {
-		t.Fatalf("dedupe failed: issue created again, calls=%d", calls)
-	}
+}
 
-	// Advancing past the window allows a new issue.
-	lr.now = func() time.Time { return fixed.Add(25 * time.Hour) }
-	if err := rep.Report(context.Background(), res); err != nil {
-		t.Fatal(err)
-	}
-	if calls != 2 {
-		t.Fatalf("after window should create again, calls=%d", calls)
+// The keys moved to the reporter level; silently ignoring them would quietly
+// change dedupe behaviour on upgrade.
+func TestLinearReporterRejectsMovedKeys(t *testing.T) {
+	for _, key := range []string{"dedupe_window", "state_path"} {
+		cfg := map[string]any{"api_key": "k", "team_id": "t", key: "24h"}
+		_, err := newLinearReporter("linear", cfg)
+		if err == nil || !strings.Contains(err.Error(), key) {
+			t.Errorf("%s: want error naming the moved key, got %v", key, err)
+		}
 	}
 }
 
@@ -178,7 +167,6 @@ func TestLinearReporterSurfacesAPIError(t *testing.T) {
 	defer srv.Close()
 	rep, _ := newLinearReporter("linear", map[string]any{
 		"api_key": "k", "team_id": "t", "api_url": srv.URL,
-		"state_path": filepath.Join(t.TempDir(), "s.json"),
 	})
 	err := rep.Report(context.Background(), []check.Result{{Check: "x", Status: check.StatusCrit}})
 	if err == nil || !strings.Contains(err.Error(), "bad team") {

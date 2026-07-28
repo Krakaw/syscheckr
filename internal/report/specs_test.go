@@ -1,9 +1,6 @@
 package report
 
-import (
-	"path/filepath"
-	"testing"
-)
+import "testing"
 
 // TestSpecsCoverReporterTypes ensures every registered reporter type has a spec
 // and can be built from it — catching a required field that drifted out of sync
@@ -23,10 +20,6 @@ func TestSpecsCoverReporterTypes(t *testing.T) {
 			case f.Default != nil:
 				cfg[f.Key] = f.Default
 			}
-		}
-		// linear opens a state store on construction; keep it out of the repo.
-		if typ == "linear" {
-			cfg["state_path"] = filepath.Join(t.TempDir(), "state.json")
 		}
 		if _, err := New(typ, "t", cfg); err != nil {
 			t.Errorf("building %q from its spec failed (spec drifted from factory?): %v", typ, err)

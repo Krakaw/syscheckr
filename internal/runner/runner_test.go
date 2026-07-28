@@ -234,6 +234,293 @@ func TestCloseReleasesCheckAndReporterResources(t *testing.T) {
 	}
 }
 
+// reportOnce runs one Report cycle and returns how many results the named
+// capture reporter received during it.
+func reportOnce(t *testing.T, r *Runner, name string, results []check.Result) int {
+	t.Helper()
+	cap := getCapture(name)
+	before := len(cap.got)
+	if err := r.Report(context.Background(), results); err != nil {
+		t.Fatalf("report: %v", err)
+	}
+	return len(cap.got) - before
+}
+
+func TestReportAlertsOnlyOnStatusChange(t *testing.T) {
+	cfg := &config.Config{
+		Defaults:  config.Defaults{Timeout: time.Second},
+		Checks:    []config.CheckConfig{{Name: "ok", Type: "fake_ok", Timeout: time.Second}},
+		Reporters: []config.ReporterConfig{{Name: "change", Type: "capture"}},
+	}
+	r, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	at := func(s check.Status) []check.Result {
+		return []check.Result{{Check: "disk", Status: s}}
+	}
+	steps := []struct {
+		status check.Status
+		want   int
+		why    string
+	}{
+		{check.StatusWarn, 1, "first warn alerts"},
+		{check.StatusWarn, 0, "still warn stays quiet"},
+		{check.StatusCrit, 1, "escalation alerts"},
+		{check.StatusCrit, 0, "still crit stays quiet"},
+		{check.StatusOK, 1, "recovery alerts"},
+		{check.StatusOK, 0, "still ok stays quiet"},
+		{check.StatusWarn, 1, "re-crossing the threshold alerts again"},
+	}
+	for _, s := range steps {
+		if got := reportOnce(t, r, "change", at(s.status)); got != s.want {
+			t.Errorf("%s: sent %d results, want %d", s.why, got, s.want)
+		}
+	}
+}
+
+// A route that drops OK results still has to re-alert when the check recovers
+// and fails again — disk 80% → 70% → 80% fires twice.
+func TestReportReAlertsAfterUnseenRecovery(t *testing.T) {
+	cfg := &config.Config{
+		Defaults:  config.Defaults{Timeout: time.Second},
+		Checks:    []config.CheckConfig{{Name: "ok", Type: "fake_ok", Timeout: time.Second}},
+		Reporters: []config.ReporterConfig{{Name: "failing-only", Type: "capture", OnlyFailing: true}},
+	}
+	r, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(s check.Status) []check.Result {
+		return []check.Result{{Check: "disk", Status: s}}
+	}
+	if got := reportOnce(t, r, "failing-only", at(check.StatusWarn)); got != 1 {
+		t.Fatalf("crossing 80%% sent %d, want 1", got)
+	}
+	if got := reportOnce(t, r, "failing-only", at(check.StatusOK)); got != 0 {
+		t.Fatalf("only_failing must not see the recovery, sent %d", got)
+	}
+	if got := reportOnce(t, r, "failing-only", at(check.StatusWarn)); got != 1 {
+		t.Fatalf("re-crossing 80%% sent %d, want 1", got)
+	}
+}
+
+func TestReportRepeatAlertsSendsEveryRun(t *testing.T) {
+	repeat := true
+	cfg := &config.Config{
+		Defaults:  config.Defaults{Timeout: time.Second},
+		Checks:    []config.CheckConfig{{Name: "ok", Type: "fake_ok", Timeout: time.Second}},
+		Reporters: []config.ReporterConfig{{Name: "every", Type: "capture", RepeatAlerts: &repeat}},
+	}
+	r, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := []check.Result{{Check: "disk", Status: check.StatusWarn}}
+	for i := 0; i < 3; i++ {
+		if got := reportOnce(t, r, "every", res); got != 1 {
+			t.Fatalf("run %d sent %d results, want 1", i, got)
+		}
+	}
+}
+
+func TestReportDedupeWindowResendsUnchanged(t *testing.T) {
+	hour := time.Hour
+	cfg := &config.Config{
+		Defaults: config.Defaults{Timeout: time.Second},
+		Checks:   []config.CheckConfig{{Name: "ok", Type: "fake_ok", Timeout: time.Second}},
+		Reporters: []config.ReporterConfig{
+			{Name: "window", Type: "capture", DedupeWindow: &hour},
+		},
+	}
+	r, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
+	r.clock = func() time.Time { return now }
+
+	res := []check.Result{{Check: "disk", Status: check.StatusCrit}}
+	if got := reportOnce(t, r, "window", res); got != 1 {
+		t.Fatalf("first report sent %d, want 1", got)
+	}
+	now = now.Add(30 * time.Minute)
+	if got := reportOnce(t, r, "window", res); got != 0 {
+		t.Fatalf("within the window sent %d, want 0", got)
+	}
+	now = now.Add(31 * time.Minute)
+	if got := reportOnce(t, r, "window", res); got != 1 {
+		t.Fatalf("past the window sent %d, want 1", got)
+	}
+}
+
+// A delivery failure must not mark the alert as sent, or a transient Slack
+// outage would swallow the alert until the next status change.
+func TestReportRetriesAfterDeliveryFailure(t *testing.T) {
+	cfg := &config.Config{
+		Defaults: config.Defaults{Timeout: time.Second},
+		Checks:   []config.CheckConfig{{Name: "ok", Type: "fake_ok", Timeout: time.Second}},
+		Reporters: []config.ReporterConfig{
+			{Name: "flaky", Type: "capture", Config: map[string]any{"fail": true}},
+		},
+	}
+	r, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := []check.Result{{Check: "disk", Status: check.StatusCrit}}
+	if err := r.Report(context.Background(), res); err == nil {
+		t.Fatal("expected the delivery error to surface")
+	}
+	getCapture("flaky").failErr = nil
+	if got := reportOnce(t, r, "flaky", res); got != 1 {
+		t.Fatalf("failed delivery should be retried, sent %d want 1", got)
+	}
+}
+
+// Regression: a delivery that fails AFTER an earlier successful one must still
+// retry. The check's own status stops changing once it settles, so a predicate
+// that only looks at "did the status move" leaves the reporter stuck on the
+// stale status it was last told and drops the alert for good.
+func TestReportRetriesFailureAfterEarlierSuccess(t *testing.T) {
+	cfg := &config.Config{
+		Defaults: config.Defaults{Timeout: time.Second},
+		Checks:   []config.CheckConfig{{Name: "ok", Type: "fake_ok", Timeout: time.Second}},
+		Reporters: []config.ReporterConfig{
+			{Name: "drops", Type: "capture"},
+		},
+	}
+	r, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := func(s check.Status) []check.Result {
+		return []check.Result{{Check: "disk", Status: s}}
+	}
+	// Run 1: warn delivers cleanly.
+	if got := reportOnce(t, r, "drops", at(check.StatusWarn)); got != 1 {
+		t.Fatalf("first warn sent %d, want 1", got)
+	}
+	// Run 2: escalates to crit, but the reporter is down.
+	getCapture("drops").failErr = errors.New("slack unreachable")
+	if err := r.Report(context.Background(), at(check.StatusCrit)); err == nil {
+		t.Fatal("expected the delivery error to surface")
+	}
+	// Run 3: still crit, reporter back up. The crit must land.
+	getCapture("drops").failErr = nil
+	if got := reportOnce(t, r, "drops", at(check.StatusCrit)); got != 1 {
+		t.Fatalf("crit was dropped after the failed delivery, sent %d want 1", got)
+	}
+}
+
+// partialReporter delivers per result (like linear filing one issue per check)
+// and fails only the checks it is told to.
+type partialReporter struct {
+	name string
+	got  []check.Result
+	fail map[string]bool
+}
+
+func (p *partialReporter) Name() string { return p.name }
+func (p *partialReporter) Report(_ context.Context, rs []check.Result) error {
+	failed := map[string]bool{}
+	for _, r := range rs {
+		if p.fail[r.Check] {
+			failed[r.Check] = true
+			continue
+		}
+		p.got = append(p.got, r)
+	}
+	if len(failed) > 0 {
+		return &report.PartialError{Failed: failed, Err: errors.New("some deliveries failed")}
+	}
+	return nil
+}
+
+var partials = map[string]*partialReporter{}
+
+func init() {
+	report.Register("partial", func(name string, _ map[string]any) (report.Reporter, error) {
+		p := &partialReporter{name: name, fail: map[string]bool{}}
+		partials[name] = p
+		return p, nil
+	})
+}
+
+// Regression: one check failing to deliver must not re-deliver the checks that
+// succeeded alongside it. For linear that means duplicate tickets every run.
+func TestReportKeepsPartialDeliveries(t *testing.T) {
+	cfg := &config.Config{
+		Defaults: config.Defaults{Timeout: time.Second},
+		Checks:   []config.CheckConfig{{Name: "ok", Type: "fake_ok", Timeout: time.Second}},
+		Reporters: []config.ReporterConfig{
+			{Name: "tickets", Type: "partial"},
+		},
+	}
+	r, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := partials["tickets"]
+	p.fail["cpu"] = true
+
+	res := []check.Result{
+		{Check: "disk", Status: check.StatusCrit},
+		{Check: "cpu", Status: check.StatusCrit},
+	}
+	if err := r.Report(context.Background(), res); err == nil {
+		t.Fatal("expected the partial failure to surface")
+	}
+	if len(p.got) != 1 || p.got[0].Check != "disk" {
+		t.Fatalf("run 1 delivered %+v, want disk only", p.got)
+	}
+
+	// Run 2: cpu recovers. disk is unchanged and already delivered, so only cpu
+	// should go out — disk must not be re-delivered.
+	p.fail = map[string]bool{}
+	p.got = nil
+	if err := r.Report(context.Background(), res); err != nil {
+		t.Fatalf("report: %v", err)
+	}
+	if len(p.got) != 1 || p.got[0].Check != "cpu" {
+		t.Fatalf("run 2 delivered %+v, want the retried cpu only (disk was already filed)", p.got)
+	}
+}
+
+func TestBuildRouteTypeDefaults(t *testing.T) {
+	// A log reporter is a record of every run, not an alert.
+	route, err := buildRoute(config.ReporterConfig{Name: "l", Type: "log"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !route.RepeatAlerts {
+		t.Error("log should repeat by default")
+	}
+	// ...unless it asks to be quiet.
+	quiet := false
+	route, _ = buildRoute(config.ReporterConfig{Name: "l", Type: "log", RepeatAlerts: &quiet})
+	if route.RepeatAlerts {
+		t.Error("explicit repeat_alerts: false should win over the log default")
+	}
+	// linear keeps the 24h re-file window it had as a reporter config key.
+	route, _ = buildRoute(config.ReporterConfig{Name: "li", Type: "linear"})
+	if route.DedupeWindow != 24*time.Hour || route.RepeatAlerts {
+		t.Errorf("linear defaults wrong: %+v", route)
+	}
+	// ...and an explicit 0 must be able to turn that default off.
+	var off time.Duration
+	route, _ = buildRoute(config.ReporterConfig{Name: "li", Type: "linear", DedupeWindow: &off})
+	if route.DedupeWindow != 0 {
+		t.Errorf("explicit dedupe_window: 0 should win over the linear default, got %v", route.DedupeWindow)
+	}
+	// Everything else alerts on change only.
+	route, _ = buildRoute(config.ReporterConfig{Name: "s", Type: "slack"})
+	if route.RepeatAlerts || route.DedupeWindow != 0 {
+		t.Errorf("slack defaults wrong: %+v", route)
+	}
+}
+
 func TestRunSelected(t *testing.T) {
 	cfg := &config.Config{
 		Defaults: config.Defaults{Timeout: time.Second},
