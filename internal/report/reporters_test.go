@@ -93,6 +93,70 @@ func TestWebhookReporterReportsBadStatus(t *testing.T) {
 	}
 }
 
+func TestHeartbeatReporterPostsKeyAndToken(t *testing.T) {
+	var got heartbeatPayload
+	var auth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+
+	rep, err := newHeartbeatReporter("hb", map[string]any{
+		"url": srv.URL, "key": "web1", "timeout": "5m", "token": "s3cret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := rep.Report(context.Background(), sampleResults()); err != nil {
+		t.Fatal(err)
+	}
+
+	if got.Key != "web1" || got.Timeout != "5m0s" {
+		t.Errorf("bad liveness fields: %+v", got)
+	}
+	if auth != "Bearer s3cret" {
+		t.Errorf("bad auth header: %q", auth)
+	}
+	// The results ride along so the server can grow stats processing later.
+	if len(got.Results) != 2 || got.Summary.Worst != "crit" {
+		t.Errorf("results should ride along: %+v", got)
+	}
+}
+
+func TestHeartbeatReporterRedactsByDefault(t *testing.T) {
+	var body []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ = io.ReadAll(r.Body)
+		w.WriteHeader(204)
+	}))
+	defer srv.Close()
+
+	rep, _ := newHeartbeatReporter("hb", map[string]any{"url": srv.URL, "key": "web1"})
+	results := []check.Result{{
+		Check: "logs", Status: check.StatusCrit,
+		Details: map[string]any{"samples": []string{"secret token=abc"}},
+	}}
+	if err := rep.Report(context.Background(), results); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "secret token") {
+		t.Fatalf("heartbeat should redact samples by default: %s", body)
+	}
+}
+
+func TestHeartbeatReporterReportsBadStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(401)
+	}))
+	defer srv.Close()
+	rep, _ := newHeartbeatReporter("hb", map[string]any{"url": srv.URL, "key": "web1"})
+	if err := rep.Report(context.Background(), sampleResults()); err == nil {
+		t.Fatal("expected error on 401 response")
+	}
+}
+
 func TestSlackReporterBuildsAttachments(t *testing.T) {
 	var msg slackMessage
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

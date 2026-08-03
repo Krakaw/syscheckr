@@ -18,7 +18,24 @@ type Config struct {
 	Checks    []CheckConfig    `yaml:"checks"`
 	Reporters []ReporterConfig `yaml:"reporters,omitempty"`
 	State     StateConfig      `yaml:"state,omitempty"`
+	Server    ServerConfig     `yaml:"server,omitempty"`
 }
+
+// ServerConfig turns this instance into a heartbeat server: other instances
+// running a `heartbeat` reporter ping it, and a missed deadline becomes a crit
+// result routed through this instance's own reporters. Daemon mode only.
+type ServerConfig struct {
+	Listen string `yaml:"listen,omitempty"` // e.g. ":8080"; empty disables the server
+	// Token, if set, must be presented by clients as an Authorization bearer.
+	// Without it anyone who can reach the port can register or refresh a key.
+	Token string `yaml:"token,omitempty"`
+	// Schedule is how often deadlines are evaluated, so detection is late by up
+	// to one tick.
+	Schedule string `yaml:"schedule,omitempty"`
+}
+
+// Enabled reports whether this instance should run the heartbeat server.
+func (s ServerConfig) Enabled() bool { return s.Listen != "" }
 
 // Defaults holds settings applied to checks that do not override them.
 type Defaults struct {
@@ -112,6 +129,9 @@ func (c *Config) applyDefaults() {
 		// so this defaults to a real file rather than an in-memory store.
 		c.State.Path = "syscheckr-state.json"
 	}
+	if c.Server.Enabled() && c.Server.Schedule == "" {
+		c.Server.Schedule = "@every 30s"
+	}
 	for i := range c.Checks {
 		if c.Checks[i].Timeout == 0 {
 			c.Checks[i].Timeout = c.Defaults.Timeout
@@ -124,7 +144,9 @@ func (c *Config) applyDefaults() {
 func (c *Config) Validate() error {
 	var errs []string
 
-	if len(c.Checks) == 0 {
+	// A pure heartbeat server has nothing of its own to check: its results come
+	// from clients pinging it.
+	if len(c.Checks) == 0 && !c.Server.Enabled() {
 		errs = append(errs, "at least one check is required")
 	}
 	seenCheck := map[string]bool{}
@@ -163,6 +185,21 @@ func (c *Config) Validate() error {
 		if rp.DedupeWindow != nil && *rp.DedupeWindow < 0 {
 			errs = append(errs, fmt.Sprintf("%s (%s): dedupe_window must not be negative", where, rp.Name))
 		}
+		// A heartbeat must be sent every run, whatever the results say. Each of
+		// these silently stops the pings while everything still looks healthy
+		// locally — the server would report the host as dead.
+		if rp.Type == "heartbeat" {
+			if rp.OnlyFailing {
+				errs = append(errs, fmt.Sprintf("%s (%s): heartbeat reporters cannot set only_failing", where, rp.Name))
+			}
+			if rp.MinSeverity != "" && !strings.EqualFold(rp.MinSeverity, "ok") {
+				errs = append(errs, fmt.Sprintf("%s (%s): heartbeat reporters cannot set min_severity above ok", where, rp.Name))
+			}
+			if rp.RepeatAlerts != nil && !*rp.RepeatAlerts {
+				errs = append(errs, fmt.Sprintf("%s (%s): heartbeat reporters cannot set repeat_alerts: false", where, rp.Name))
+			}
+		}
+
 		// Referenced check names should exist, to catch typos early.
 		for _, cn := range rp.Checks {
 			if !seenCheck[cn] {
