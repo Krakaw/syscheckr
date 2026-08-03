@@ -165,7 +165,17 @@ func (s *Scheduler) startHTTP() *http.Server {
 	if s.hb != nil {
 		s.hb.Register(mux)
 	}
-	srv := &http.Server{Addr: s.addr, Handler: mux}
+	srv := &http.Server{
+		Addr:    s.addr,
+		Handler: mux,
+		// /ping is network-exposed and unauthenticated until the token is
+		// checked, so a connection that trickles or never finishes its headers
+		// must not be able to hold a slot open indefinitely (slowloris).
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			s.log.Error("http server failed", "error", err)

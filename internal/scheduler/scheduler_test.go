@@ -60,3 +60,20 @@ func TestSchedulerInvalidCron(t *testing.T) {
 		t.Fatal("expected error for invalid cron schedule")
 	}
 }
+
+// The HTTP server is network-exposed once server.listen is set, so a
+// connection that never finishes its headers must not hold a slot forever.
+func TestHTTPServerSetsTimeouts(t *testing.T) {
+	cfg, r := buildRunner(t, []config.CheckConfig{{Name: "cpu", Type: "cpu"}})
+	cfg.Server = config.ServerConfig{Listen: "127.0.0.1:0", Schedule: "@every 30s"}
+	s, err := New(cfg, r, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := s.startHTTP()
+	defer srv.Close()
+
+	if srv.ReadHeaderTimeout == 0 || srv.ReadTimeout == 0 || srv.WriteTimeout == 0 || srv.IdleTimeout == 0 {
+		t.Errorf("server left a timeout unset: %+v", srv)
+	}
+}
