@@ -514,6 +514,12 @@ func TestBuildRouteTypeDefaults(t *testing.T) {
 	if route.DedupeWindow != 0 {
 		t.Errorf("explicit dedupe_window: 0 should win over the linear default, got %v", route.DedupeWindow)
 	}
+	// A heartbeat must assert liveness every run: suppressing an unchanged
+	// status would look exactly like the host having died.
+	route, _ = buildRoute(config.ReporterConfig{Name: "hb", Type: "heartbeat"})
+	if !route.RepeatAlerts {
+		t.Error("heartbeat should repeat by default")
+	}
 	// Everything else alerts on change only.
 	route, _ = buildRoute(config.ReporterConfig{Name: "s", Type: "slack"})
 	if route.RepeatAlerts || route.DedupeWindow != 0 {

@@ -184,3 +184,78 @@ checks:
 		t.Fatal("expected error for unknown field")
 	}
 }
+
+func TestParseServerAllowsNoChecks(t *testing.T) {
+	raw := `
+server:
+  listen: ":8080"
+  token: s3cret
+reporters:
+  - name: out
+    type: log
+`
+	cfg, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatalf("a pure heartbeat server has no checks of its own: %v", err)
+	}
+	if !cfg.Server.Enabled() || cfg.Server.Schedule != "@every 30s" {
+		t.Errorf("server defaults not applied: %+v", cfg.Server)
+	}
+}
+
+func TestValidateRequiresChecksWithoutServer(t *testing.T) {
+	raw := `
+reporters:
+  - name: out
+    type: log
+`
+	if _, err := Parse([]byte(raw)); err == nil {
+		t.Fatal("expected error: no checks and no server")
+	}
+}
+
+// Each of these silently stops the pings while the client still looks healthy,
+// which the server would report as the host being dead.
+func TestValidateRejectsStarvedHeartbeatReporter(t *testing.T) {
+	for _, knob := range []string{
+		"only_failing: true",
+		"min_severity: warn",
+		"repeat_alerts: false",
+	} {
+		raw := `
+checks:
+  - name: disk
+    type: disk
+reporters:
+  - name: hb
+    type: heartbeat
+    ` + knob + `
+    config:
+      url: http://mon:8080/ping
+      key: web1
+`
+		_, err := Parse([]byte(raw))
+		if err == nil || !strings.Contains(err.Error(), "heartbeat reporters cannot") {
+			t.Errorf("%s: want a heartbeat routing error, got %v", knob, err)
+		}
+	}
+}
+
+func TestValidateAllowsHeartbeatWithExplicitOkSeverity(t *testing.T) {
+	raw := `
+checks:
+  - name: disk
+    type: disk
+reporters:
+  - name: hb
+    type: heartbeat
+    min_severity: ok
+    repeat_alerts: true
+    config:
+      url: http://mon:8080/ping
+      key: web1
+`
+	if _, err := Parse([]byte(raw)); err != nil {
+		t.Fatalf("explicit ok/true should be allowed: %v", err)
+	}
+}

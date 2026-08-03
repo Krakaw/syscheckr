@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Krakaw/syscheckr/internal/config"
+	"github.com/Krakaw/syscheckr/internal/heartbeat"
 	"github.com/Krakaw/syscheckr/internal/runner"
 	"github.com/robfig/cron/v3"
 )
@@ -31,6 +32,8 @@ type Scheduler struct {
 	opts   Options
 	cron   *cron.Cron
 	log    *slog.Logger
+	addr   string              // resolved HTTP listen address ("" = no server)
+	hb     *heartbeat.Registry // non-nil when the heartbeat server is enabled
 
 	mu       sync.Mutex
 	lastRun  time.Time
@@ -64,7 +67,34 @@ func New(cfg *config.Config, r *runner.Runner, opts Options) (*Scheduler, error)
 			return nil, fmt.Errorf("invalid schedule %q for %v: %w", sched, names, err)
 		}
 	}
+
+	// The --healthz flag wins over server.listen: both describe the same
+	// listener, and a flag is the more explicit of the two.
+	s.addr = opts.HealthzAddr
+	if s.addr == "" {
+		s.addr = cfg.Server.Listen
+	}
+	if cfg.Server.Enabled() {
+		s.hb = heartbeat.New(cfg.Server.Token)
+		if _, err := s.cron.AddFunc(cfg.Server.Schedule, s.reportHeartbeats); err != nil {
+			return nil, fmt.Errorf("invalid server schedule %q: %w", cfg.Server.Schedule, err)
+		}
+	}
 	return s, nil
+}
+
+// reportHeartbeats evaluates client deadlines and routes the results through
+// the normal reporting path, so alert-on-change applies per client key.
+func (s *Scheduler) reportHeartbeats() {
+	results := s.hb.Results()
+	if len(results) == 0 {
+		return // no client has pinged yet
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	if err := s.runner.Report(ctx, results); err != nil {
+		s.log.Warn("reporting heartbeats failed", "error", err)
+	}
 }
 
 // runGroup executes a group of checks and reports their results.
@@ -90,13 +120,13 @@ func (s *Scheduler) runGroup(names []string) {
 // canceled, then shuts down gracefully.
 func (s *Scheduler) Run(ctx context.Context) error {
 	var srv *http.Server
-	if s.opts.HealthzAddr != "" {
-		srv = s.startHealthz()
+	if s.addr != "" {
+		srv = s.startHTTP()
 	}
 
 	s.cron.Start()
 	s.log.Info("syscheckr daemon started",
-		"checks", len(s.cfg.Checks), "healthz", s.opts.HealthzAddr)
+		"checks", len(s.cfg.Checks), "listen", s.addr, "heartbeat_server", s.hb != nil)
 
 	<-ctx.Done()
 	s.log.Info("shutting down")
@@ -119,8 +149,11 @@ func (s *Scheduler) Run(ctx context.Context) error {
 	return nil
 }
 
-// startHealthz serves a simple health endpoint reflecting scheduler liveness.
-func (s *Scheduler) startHealthz() *http.Server {
+// startHTTP serves the health endpoint reflecting scheduler liveness, plus the
+// heartbeat ingest endpoint when the heartbeat server is enabled. /ping is
+// mounted only in that case, so an existing --healthz user does not silently
+// gain a write endpoint.
+func (s *Scheduler) startHTTP() *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		s.mu.Lock()
@@ -129,10 +162,23 @@ func (s *Scheduler) startHealthz() *http.Server {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprintf(w, `{"status":"ok","runs":%d,"last_run":%q}`+"\n", count, last.Format(time.RFC3339))
 	})
-	srv := &http.Server{Addr: s.opts.HealthzAddr, Handler: mux}
+	if s.hb != nil {
+		s.hb.Register(mux)
+	}
+	srv := &http.Server{
+		Addr:    s.addr,
+		Handler: mux,
+		// /ping is network-exposed and unauthenticated until the token is
+		// checked, so a connection that trickles or never finishes its headers
+		// must not be able to hold a slot open indefinitely (slowloris).
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			s.log.Error("healthz server failed", "error", err)
+			s.log.Error("http server failed", "error", err)
 		}
 	}()
 	return srv

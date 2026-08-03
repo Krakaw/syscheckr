@@ -129,6 +129,30 @@ reporters:
       team_id: ${LINEAR_TEAM_ID}
       redact: true                         # keep log samples / command output out of tickets
 
+  # Prove this host is alive to another syscheckr instance running `server:`
+  # below. Sent every run — if this host stops running checks, or stops running,
+  # the server alerts. Routing knobs that could suppress it (only_failing,
+  # min_severity above ok, repeat_alerts: false) are rejected at validation.
+  # - name: home-server
+  #   type: heartbeat
+  #   config:
+  #     url: http://mon.example.com:8080/ping
+  #     key: ${HOSTNAME}                   # this host's identity on the server
+  #     timeout: 5m                        # keep well above this host's schedules; max 24h
+  #     token: ${SYSCHECKR_TOKEN}
+  #     redact: true                       # default; results ride along with the ping
+  #     http_timeout: 15s                  # request timeout for the ping itself
+
+# Turn this instance into a heartbeat server (daemon mode only). Clients POST
+# /ping with a key and their own timeout; a missed deadline becomes a crit
+# result named heartbeat:<key>, routed through the reporters above. A server
+# needs no checks of its own. This also serves /healthz, and --healthz wins if
+# both are set.
+# server:
+#   listen: ":8080"
+#   token: ${SYSCHECKR_TOKEN}   # without it, anyone who can reach the port can register a key
+#   schedule: "@every 30s"      # deadlines are evaluated this often, so detection is one tick late
+
 # Remembers the status each reporter was last alerted about, so a check sitting
 # at warn fires once instead of every run.
 state:

@@ -93,6 +93,10 @@ func buildRoute(rc config.ReporterConfig) (report.Route, error) {
 	switch rc.Type {
 	case "log":
 		route.RepeatAlerts = true
+	case "heartbeat":
+		// Liveness has to be asserted every run: suppressing an unchanged
+		// status here would look exactly like the host having died.
+		route.RepeatAlerts = true
 	case "linear":
 		route.DedupeWindow = 24 * time.Hour
 	}

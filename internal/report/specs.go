@@ -23,6 +23,14 @@ var Specs = map[string][]check.Field{
 		{Key: "redact", Default: false, Prompt: "strip log samples / command output from details"},
 		{Key: "timeout", Default: "15s", Prompt: "request timeout"},
 	},
+	"heartbeat": {
+		{Key: "url", Required: true, Prompt: "server ping endpoint, e.g. http://mon:8080/ping"},
+		{Key: "key", Required: true, Prompt: "this host's identity on the server"},
+		{Key: "timeout", Default: "5m", Prompt: "alert if the server sees no ping for this long"},
+		{Key: "token", Prompt: "server.token, sent as an Authorization bearer"},
+		{Key: "redact", Default: true, Prompt: "strip log samples / command output from results"},
+		{Key: "http_timeout", Default: "15s", Prompt: "request timeout"},
+	},
 	"linear": {
 		{Key: "api_key", Required: true, Prompt: "Linear API key"},
 		{Key: "team_id", Required: true, Prompt: "Linear team ID"},

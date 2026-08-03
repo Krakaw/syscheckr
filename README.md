@@ -129,6 +129,7 @@ Docker checks talk to the Docker Engine API over the socket from `DOCKER_HOST`
 | `slack` | Incoming-webhook message, attachment per result | `webhook_url`, `username`, `channel` |
 | `webhook` | POST a JSON payload to any URL | `url`, `headers`, `secret` (HMAC-SHA256), `redact` |
 | `linear` | Create Linear issues for failing checks | `api_key`, `team_id`, `label_ids`, `redact` |
+| `heartbeat` | Prove this host is alive to a syscheckr server | `url`, `key`, `timeout`, `token`, `redact`, `http_timeout` |
 
 `redact: true` strips `samples` (matched log lines) and `output` (command stdout) from the data sent to that reporter, so secret-bearing log/command content stays off-box. The `slack` reporter always omits these from its fields.
 
@@ -179,6 +180,80 @@ under cron (`syscheckr run`) as well as `daemon`; set its location with
 `state.path` (default `syscheckr-state.json`). A reporter that fails to deliver
 is not recorded, so the next run retries it.
 
+## Heartbeat: watching whole hosts
+
+A host that dies stops reporting, and silence looks exactly like health. To
+catch that, one instance can run as a **server**: clients ping it with a key and
+their own expected timeout, and a missed deadline becomes a `crit` result on the
+server, routed through the server's own reporters.
+
+Same binary on both ends — the config file decides the role.
+
+**Server** (`daemon` mode only):
+
+```yaml
+server:
+  listen: ":8080"                # empty/absent disables the server
+  token: "${SYSCHECKR_TOKEN}"    # clients send it as: Authorization: Bearer <token>
+  schedule: "@every 30s"         # how often deadlines are evaluated
+reporters:
+  - name: slack
+    type: slack
+    config:
+      webhook_url: "${SLACK_WEBHOOK}"
+```
+
+Leave `only_failing` off here: it drops OK results, so the server would tell
+you a host went dark but never that it came back.
+
+A server needs no `checks:` of its own — its results come from its clients.
+`server.listen` serves `/healthz` too, and `--healthz` still works: if both are
+given the flag wins.
+
+**Client** — just another reporter, so it rides the normal check cycle:
+
+```yaml
+reporters:
+  - name: home-server
+    type: heartbeat
+    config:
+      url: http://mon:8080/ping
+      key: laptop                # this host's identity on the server
+      timeout: 5m                # server alerts if it sees no ping for this long; max 24h
+      token: "${SYSCHECKR_TOKEN}"
+      # http_timeout: 15s        # request timeout for the ping itself
+```
+
+Results appear on the server as `heartbeat:<key>`, one per client, so each host
+alerts and recovers independently under the usual [alert on
+change](#alert-on-change) rules — one crit when it goes dark, one ok when it
+comes back.
+
+Notes:
+
+- Set `timeout` comfortably above the client's check schedule (default
+  `@every 1m`), or the server will alert between pings. It must be `>0` and at
+  most `24h` — both ends enforce that, so a bad value fails at startup rather
+  than every run.
+- Detection is late by up to one `server.schedule` tick, plus the client's own
+  schedule.
+- Without `token` anyone who can reach the port can register or refresh a key —
+  set it, or keep the port on a VPN/LAN.
+- Keys are learned from the first ping, so a client that has *never* pinged is
+  invisible, and restarting the server forgets every key until each client pings
+  again.
+- Clients send their full results alongside the ping. The server ignores them
+  today; that is the seam for server-side stats processing.
+
+`POST /ping` takes `{"key":"laptop","timeout":"5m"}` and answers `204`, or
+`400`/`401`/`405`/`413` — so anything that can make an HTTP request can act as a
+client:
+
+```sh
+curl -X POST http://mon:8080/ping -H "Authorization: Bearer $SYSCHECKR_TOKEN" \
+  -d '{"key":"backup-job","timeout":"23h"}'
+```
+
 ## Extending
 
 Checks and reporters are Go interfaces backed by registries. To add a type,
@@ -204,7 +279,8 @@ internal/config      YAML schema, ${ENV} expansion, validation
 internal/check       Check interface + registry, built-in checks
 internal/report      Reporter interface + registry + routing, built-in reporters
 internal/runner      builds checks/reporters, runs concurrently w/ timeouts, fans out
-internal/scheduler   daemon mode: cron-per-schedule, graceful shutdown, /healthz
+internal/scheduler   daemon mode: cron-per-schedule, graceful shutdown, HTTP server
+internal/heartbeat   heartbeat server: /ping ingest, deadline -> crit result
 internal/dockerapi   tiny stdlib Docker Engine API client
 internal/state       JSON key/time store for reporter dedupe
 internal/confutil    typed accessors over raw config maps
