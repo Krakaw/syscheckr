@@ -127,7 +127,8 @@ func (r *Registry) authorized(req *http.Request) bool {
 	if r.token == "" {
 		return true
 	}
-	// Constant-time: a plain == leaks how much of the token was guessed.
+	// Constant-time in the content, though the length still leaks: a plain ==
+	// would leak how much of the token was guessed.
 	got, want := req.Header.Get("Authorization"), "Bearer "+r.token
 	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
 }
