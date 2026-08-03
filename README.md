@@ -199,10 +199,12 @@ server:
 reporters:
   - name: slack
     type: slack
-    only_failing: true
     config:
       webhook_url: "${SLACK_WEBHOOK}"
 ```
+
+Leave `only_failing` off here: it drops OK results, so the server would tell
+you a host went dark but never that it came back.
 
 A server needs no `checks:` of its own — its results come from its clients.
 `server.listen` serves `/healthz` too, and `--healthz` still works: if both are
