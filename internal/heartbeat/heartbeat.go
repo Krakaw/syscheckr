@@ -38,6 +38,13 @@ const (
 // state-file keys, and in alert text sent to Slack/Linear.
 var keyPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`)
 
+// KeyFormat describes keyPattern for error messages on both ends.
+const KeyFormat = "1-128 chars of [A-Za-z0-9._:-]"
+
+// ValidKey reports whether a client key is acceptable. Exported so the client
+// reporter can reject a bad key at construction instead of failing every run.
+func ValidKey(key string) bool { return keyPattern.MatchString(key) }
+
 // entry is the last ping seen for one key.
 type entry struct {
 	lastSeen time.Time
@@ -95,8 +102,8 @@ func (r *Registry) servePing(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if !keyPattern.MatchString(p.Key) {
-		http.Error(w, "key must be 1-128 chars of [A-Za-z0-9._:-]", http.StatusBadRequest)
+	if !ValidKey(p.Key) {
+		http.Error(w, "key must be "+KeyFormat, http.StatusBadRequest)
 		return
 	}
 	timeout, err := time.ParseDuration(p.Timeout)

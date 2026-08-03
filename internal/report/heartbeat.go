@@ -68,8 +68,11 @@ func newHeartbeatReporter(name string, cfg map[string]any) (Reporter, error) {
 	if err := m.Err(); err != nil {
 		return nil, err
 	}
-	// The server enforces the same bound, so reject it here rather than failing
-	// every run with a 400 the operator only sees in the logs.
+	// The server enforces the same rules, so reject them here rather than
+	// failing every run with a 400 the operator only sees in the logs.
+	if !heartbeat.ValidKey(r.key) {
+		return nil, fmt.Errorf("%s: config %q: must be %s", name, "key", heartbeat.KeyFormat)
+	}
 	if r.timeout <= 0 || r.timeout > heartbeat.MaxTimeout {
 		return nil, fmt.Errorf("%s: config %q: must be >0 and <=%s", name, "timeout", heartbeat.MaxTimeout)
 	}

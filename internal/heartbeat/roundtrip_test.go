@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Krakaw/syscheckr/internal/check"
@@ -49,24 +50,31 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
-// The client's bound and the server's must agree, or a misconfigured client
-// would fail every run with a 400 the operator only sees in the logs.
-func TestClientRejectsTimeoutAboveServerCap(t *testing.T) {
+// The client's rules and the server's must agree, or a misconfigured client
+// would start fine and then fail every run with a 400 the operator only sees
+// in the logs.
+func TestClientRejectsWhatTheServerWould(t *testing.T) {
 	for _, tc := range []struct {
+		name    string
+		key     string
 		timeout string
 		wantErr bool
 	}{
-		{"5m", false},
-		{"24h", false},
-		{"25h", true},
-		{"0s", true},
-		{"-1m", true},
+		{"ok", "web1", "5m", false},
+		{"every allowed key character", "web-1.a_b:c", "5m", false},
+		{"timeout at the cap", "web1", "24h", false},
+		{"timeout above the cap", "web1", "25h", true},
+		{"timeout zero", "web1", "0s", true},
+		{"timeout negative", "web1", "-1m", true},
+		{"key with a space", "web 1", "5m", true},
+		{"key with a slash", "web/1", "5m", true},
+		{"key too long", strings.Repeat("a", 129), "5m", true},
 	} {
 		_, err := report.New("heartbeat", "hb", map[string]any{
-			"url": "http://mon.test/ping", "key": "web1", "timeout": tc.timeout,
+			"url": "http://mon.test/ping", "key": tc.key, "timeout": tc.timeout,
 		})
 		if (err != nil) != tc.wantErr {
-			t.Errorf("timeout %q: wantErr=%v, got %v", tc.timeout, tc.wantErr, err)
+			t.Errorf("%s: wantErr=%v, got %v", tc.name, tc.wantErr, err)
 		}
 	}
 }
