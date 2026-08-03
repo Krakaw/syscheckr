@@ -138,9 +138,10 @@ reporters:
   #   config:
   #     url: http://mon.example.com:8080/ping
   #     key: ${HOSTNAME}                   # this host's identity on the server
-  #     timeout: 5m                        # keep well above this host's schedules
+  #     timeout: 5m                        # keep well above this host's schedules; max 24h
   #     token: ${SYSCHECKR_TOKEN}
   #     redact: true                       # default; results ride along with the ping
+  #     http_timeout: 15s                  # request timeout for the ping itself
 
 # Turn this instance into a heartbeat server (daemon mode only). Clients POST
 # /ping with a key and their own timeout; a missed deadline becomes a crit

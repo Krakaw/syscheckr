@@ -11,6 +11,7 @@ import (
 
 	"github.com/Krakaw/syscheckr/internal/check"
 	"github.com/Krakaw/syscheckr/internal/confutil"
+	"github.com/Krakaw/syscheckr/internal/heartbeat"
 )
 
 // heartbeatReporter is the client half of liveness monitoring: it POSTs a
@@ -66,6 +67,11 @@ func newHeartbeatReporter(name string, cfg map[string]any) (Reporter, error) {
 	}
 	if err := m.Err(); err != nil {
 		return nil, err
+	}
+	// The server enforces the same bound, so reject it here rather than failing
+	// every run with a 400 the operator only sees in the logs.
+	if r.timeout <= 0 || r.timeout > heartbeat.MaxTimeout {
+		return nil, fmt.Errorf("%s: config %q: must be >0 and <=%s", name, "timeout", heartbeat.MaxTimeout)
 	}
 	return r, nil
 }

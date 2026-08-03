@@ -129,7 +129,7 @@ Docker checks talk to the Docker Engine API over the socket from `DOCKER_HOST`
 | `slack` | Incoming-webhook message, attachment per result | `webhook_url`, `username`, `channel` |
 | `webhook` | POST a JSON payload to any URL | `url`, `headers`, `secret` (HMAC-SHA256), `redact` |
 | `linear` | Create Linear issues for failing checks | `api_key`, `team_id`, `label_ids`, `redact` |
-| `heartbeat` | Prove this host is alive to a syscheckr server | `url`, `key`, `timeout`, `token`, `redact` |
+| `heartbeat` | Prove this host is alive to a syscheckr server | `url`, `key`, `timeout`, `token`, `redact`, `http_timeout` |
 
 `redact: true` strips `samples` (matched log lines) and `output` (command stdout) from the data sent to that reporter, so secret-bearing log/command content stays off-box. The `slack` reporter always omits these from its fields.
 
@@ -217,8 +217,9 @@ reporters:
     config:
       url: http://mon:8080/ping
       key: laptop                # this host's identity on the server
-      timeout: 5m                # server alerts if it sees no ping for this long
+      timeout: 5m                # server alerts if it sees no ping for this long; max 24h
       token: "${SYSCHECKR_TOKEN}"
+      # http_timeout: 15s        # request timeout for the ping itself
 ```
 
 Results appear on the server as `heartbeat:<key>`, one per client, so each host
@@ -229,7 +230,9 @@ comes back.
 Notes:
 
 - Set `timeout` comfortably above the client's check schedule (default
-  `@every 1m`), or the server will alert between pings.
+  `@every 1m`), or the server will alert between pings. It must be `>0` and at
+  most `24h` — both ends enforce that, so a bad value fails at startup rather
+  than every run.
 - Detection is late by up to one `server.schedule` tick, plus the client's own
   schedule.
 - Without `token` anyone who can reach the port can register or refresh a key —
@@ -246,7 +249,7 @@ client:
 
 ```sh
 curl -X POST http://mon:8080/ping -H "Authorization: Bearer $SYSCHECKR_TOKEN" \
-  -d '{"key":"backup-job","timeout":"25h"}'
+  -d '{"key":"backup-job","timeout":"23h"}'
 ```
 
 ## Extending

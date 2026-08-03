@@ -22,10 +22,11 @@ import (
 )
 
 const (
-	// maxTimeout bounds the client-supplied deadline. A client asking to be
+	// MaxTimeout bounds the client-supplied deadline. A client asking to be
 	// excused for a month is almost certainly a config error, and accepting it
-	// would silently disable its own alert.
-	maxTimeout = 24 * time.Hour
+	// would silently disable its own alert. Exported so the client reporter can
+	// reject an over-long timeout at construction instead of failing every run.
+	MaxTimeout = 24 * time.Hour
 	// maxBody caps the ping payload. Clients send their full results, so this is
 	// generous, but it is still attacker-controlled input.
 	maxBody = 64 << 10
@@ -103,8 +104,8 @@ func (r *Registry) servePing(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "timeout must be a duration string, e.g. 5m", http.StatusBadRequest)
 		return
 	}
-	if timeout <= 0 || timeout > maxTimeout {
-		http.Error(w, fmt.Sprintf("timeout must be >0 and <=%s", maxTimeout), http.StatusBadRequest)
+	if timeout <= 0 || timeout > MaxTimeout {
+		http.Error(w, fmt.Sprintf("timeout must be >0 and <=%s", MaxTimeout), http.StatusBadRequest)
 		return
 	}
 

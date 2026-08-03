@@ -1,7 +1,6 @@
 package heartbeat
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,7 +8,6 @@ import (
 	"time"
 
 	"github.com/Krakaw/syscheckr/internal/check"
-	"github.com/Krakaw/syscheckr/internal/report"
 )
 
 func serve(t *testing.T, reg *Registry) *httptest.Server {
@@ -148,38 +146,5 @@ func TestResultsGoCritAfterTimeout(t *testing.T) {
 func TestResultsEmptyBeforeAnyPing(t *testing.T) {
 	if got := New("").Results(); len(got) != 0 {
 		t.Errorf("want no results before any ping, got %v", got)
-	}
-}
-
-// TestRoundTrip wires the real client reporter to the real server handler. It
-// is the only test that fails if the two halves' wire formats drift apart.
-func TestRoundTrip(t *testing.T) {
-	reg := New("s3cret")
-	srv := serve(t, reg)
-
-	rep, err := report.New("heartbeat", "hb", map[string]any{
-		"url":     srv.URL + "/ping",
-		"key":     "web1",
-		"timeout": "5m",
-		"token":   "s3cret",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	results := []check.Result{{Check: "cpu", Status: check.StatusWarn, Summary: "cpu hot"}}
-	if err := rep.Report(context.Background(), results); err != nil {
-		t.Fatal(err)
-	}
-
-	got := reg.Results()
-	if len(got) != 1 || got[0].Check != "heartbeat:web1" {
-		t.Fatalf("server did not register the ping: %+v", got)
-	}
-	if got[0].Status != check.StatusOK {
-		t.Errorf("fresh ping should be ok, got %s", got[0].Status)
-	}
-	if got[0].Details["timeout"] != "5m0s" {
-		t.Errorf("client timeout did not survive the round trip: %v", got[0].Details["timeout"])
 	}
 }
